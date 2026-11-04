@@ -115,4 +115,4 @@ Sherwin-Williams' own, and door frame hexes are by eye.
 
 TODO
 - splat of the real scan as an "existing" view
-- Draco compression for bigger models
+- meshopt in the build, for a scanned or textured house (see docs/publish.md)

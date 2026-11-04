@@ -161,6 +161,14 @@ Ask: **"GitHub Pages or Cloudflare?"** Then follow `docs/publish.md`.
 Publishing is outward-facing. Confirm before the first deploy, and strip private notes
 (addresses, correspondence, security details) from anything that goes into a GLB.
 
+Serve it compressed (`docs/publish.md`, "Compression"). A GLB is mostly floats that
+repeat, so it shrinks 5-20x, but only if something compresses it. Check with
+`curl -sI -H 'Accept-Encoding: gzip, br' <url>/model/house.glb` and look for
+`content-encoding`. GitHub Pages gzips GLBs. Cloudflare doesn't by default, since
+`model/gltf-binary` isn't on its list. For a big real model, run `gltf-transform meshopt`
+on the export too. Never `gltf-transform optimize`: its dedup and join steps merge
+materials and nodes, and the viewer finds them by name.
+
 After a deploy, prove it: `uv run tools/verify_live.py <url>` compares every file with
 the live site, byte for byte, plus the fingerprint. The Pages workflow's `verify` job does
 it against the exact artifact it deployed. "CI is green" isn't proof the site is right.
@@ -192,10 +200,11 @@ it against the exact artifact it deployed. "CI is green" isn't proof the site is
 - GLTFLoader strips dots from `object.name` (`door.operable` becomes `dooroperable`). Match
   nodes on `userData.name`, which keeps the original. Material names keep their dots.
 - trimesh boxes share vertices. `unmerge_vertices()` before export, or faces shade smooth.
-- GLBs from trimesh have no normals. `computeVertexNormals()` before using them.
+- trimesh writes no normals unless you ask. Without them three skips shadows with no
+  warning. Export with `include_normals=True` and set flat vertex normals yourself
+  (`np.repeat(face_normals, 3, axis=0)` on unmerged faces).
 - Open3D's tensor mesh keeps one material. Build the raycast mesh from bare geometry.
 - One RANSAC run on a house is a coin flip. Try several and keep the best ICP fitness.
-- Coplanar faces z-fight. Offset by a few mm.
 - Coplanar faces z-fight, and here it showed as plaster-white stripes in the brick three
   times (party walls, the wing corner). Raycast the pixel to find the two faces
   (`window.viewer` is exposed for that), then give each wall its own volume.

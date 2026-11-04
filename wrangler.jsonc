@@ -1,0 +1,16 @@
+// Cloudflare Workers static assets: the same site/ folder GitHub Pages serves.
+//   make build && npx wrangler deploy
+// First deploy lands on <name>.<your-subdomain>.workers.dev. For your own domain, the
+// zone has to be on Cloudflare; uncomment routes and redeploy (Cloudflare makes the DNS
+// record and the certificate). No account_id here: wrangler asks, or reads
+// CLOUDFLARE_ACCOUNT_ID from the environment.
+{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "3d-model-skill",
+  "compatibility_date": "2026-11-01",
+  "assets": {
+    "directory": "./site",
+    "not_found_handling": "none"
+  }
+  // "routes": [{ "pattern": "house.example.com", "custom_domain": true }]
+}

@@ -1,0 +1,67 @@
+# The example house: a made-up two-story brick rowhouse with a rear wing, a front
+# porch and a small back yard. Not a real address. Every dimension says where it came
+# from, the way a real model would: tape, scan, drawing, spec (a manufacturer's sheet)
+# or estimate. Units: feet and inches as you'd write them on a tape sketch. build.py
+# converts to inches once on read and to meters once on export.
+#
+# Axes: X along the facade (east), Y from the front wall toward the yard, Z up.
+# Origin: outside face of the front wall, at the west party line, at first-floor finished floor.
+
+main:
+  source: tape
+  width: 16'               # party line to party line
+  depth: 32'
+  wall: 12"                # three wythes of brick; the outer 4" is the face brick
+  first_floor: 10'         # floor to floor
+  second_floor: 9' 6"
+  floor_depth: 10"         # joists + subfloor, hidden inside the walls
+  parapet: 1' 4"           # above the roof deck, front only
+  grade: -2'               # sidewalk below first floor
+
+wing:
+  source: scan             # read off the LiDAR scan, good to about 1"
+  width: 11'
+  depth: 14'
+  side: east               # the wing hugs the east party wall; the court is to the west
+  roof_drop: 1'            # wing roof sits this far below the main roof
+
+front:
+  source: tape
+  door: {x: 1' 8", width: 3', height: 7', transom: 1' 4"}
+  windows_first: [{x: 6' 8", width: 3'}, {x: 11' 8", width: 3'}]
+  windows_second: [{x: 1' 8", width: 3'}, {x: 6' 6", width: 3'}, {x: 11' 4", width: 3'}]
+  window_height: 5' 6"
+  sill_first: 2' 6"
+  sill_second: 2' 6"       # above the second floor
+  cornice: {projection: 1', height: 1' 2"}
+
+rear:
+  source: scan
+  main_window: {x: 1', width: 3', height: 5', sill: 2' 6"}   # main block, west of the wing
+  wing_windows: [{y: 3', width: 2' 8"}, {y: 9' 6", width: 2' 8"}]   # wing's west wall
+  wing_window_height: 5'
+  existing_rear_window: {width: 3', height: 5', sill: 3'}     # what the slider replaces
+
+porch:
+  source: estimate         # no drawing; sized from photos and one tape check of the depth
+  depth: 8'
+  floor_below_threshold: 1"
+  post: 5 1/2"             # 6x6 actual
+  posts_x: [6", 5' 6", 10' 6", 15' 6"]
+  rail_height: 3'          # IRC R312: guards required above 30"; 36" for residential
+  baluster: 1 1/2"
+  baluster_gap: 3 7/8"     # under the 4" sphere rule
+  ceiling: 8' 8"           # above porch floor
+  roof_pitch_drop: 10"     # front edge is this far below the wall end
+  stair: {x: 1', width: 4', risers: 3, tread: 11"}
+
+site:
+  source: estimate
+  sidewalk: 10'
+  street: 30'
+  yard_depth: 30'
+  fence_height: 6'
+
+neighbors:
+  source: estimate         # context only, massed as plain blocks
+  count_each_side: 1

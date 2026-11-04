@@ -1,0 +1,482 @@
+// 3d-model-skill viewer: one static page, three.js, and a contract (controls.json) that the
+// generator wrote. Nothing here knows about houses: it recolors materials by name,
+// swaps GLBs into slots, and slides named nodes. Change the model, not this file.
+import * as THREE from 'three';
+import {OrbitControls} from './vendor/OrbitControls.js';
+import {GLTFLoader} from './vendor/GLTFLoader.js';
+
+const $ = id => document.getElementById(id);
+
+// ---------------------------------------------------------------- scene
+const scene = new THREE.Scene();
+scene.background = new THREE.Color('#dfe6ea');
+const camera = new THREE.PerspectiveCamera(50, innerWidth / innerHeight, 0.05, 400);
+const renderer = new THREE.WebGLRenderer({antialias: true});
+renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+renderer.setSize(innerWidth, innerHeight);
+renderer.outputColorSpace = THREE.SRGBColorSpace;
+$('viewport').append(renderer.domElement);
+scene.add(new THREE.HemisphereLight(0xffffff, 0xb9b1a3, 2.1));
+const sun = new THREE.DirectionalLight(0xfff3e2, 2.4);
+sun.position.set(-14, 24, 18);
+scene.add(sun);
+const fill = new THREE.DirectionalLight(0xffffff, 0.6);
+fill.position.set(12, 8, -16);
+scene.add(fill);
+// A phone held upright sees a sliver at 50 degrees; widen the vertical field so a view
+// frames about the same width on both.
+function fit() {
+  camera.aspect = innerWidth / innerHeight;
+  camera.fov = camera.aspect < 1 ? 72 : 50;
+  // On a desktop the panel covers the right 344px: center the picture in what's left.
+  if (innerWidth > 720) camera.setViewOffset(innerWidth, innerHeight, 172, 0, innerWidth, innerHeight);
+  else camera.clearViewOffset();
+  camera.updateProjectionMatrix();
+  renderer.setSize(innerWidth, innerHeight);
+}
+addEventListener('resize', fit);
+fit();
+
+// Calmer swings than three's default (rotateSpeed 1): a phone swipe shouldn't spin the house.
+const orbit = new OrbitControls(camera, renderer.domElement);
+orbit.enableDamping = true;
+orbit.dampingFactor = 0.1;
+orbit.rotateSpeed = 0.45;
+orbit.minDistance = 0.5;
+orbit.maxDistance = 80;
+orbit.maxPolarAngle = Math.PI * 0.495;
+
+const loader = new GLTFLoader();
+const cache = new Map();            // url -> Promise<gltf scene>
+const slots = new Map();            // slot id -> {url, group}
+const root = new THREE.Group();
+scene.add(root);
+
+// ---------------------------------------------------------------- the contract
+let contract, settings = {}, fields = new Map(), views = [], selected = 0;
+
+function fieldOptions(f) {
+  // A color field can take its choices from another field: each door has its own colors.
+  if (f.options_by) return f.options_by_value[settings[f.options_by]] || [];
+  return f.options;
+}
+function optionKeys(f) {
+  const o = fieldOptions(f);
+  return Array.isArray(o) ? o.map(x => x[0]) : Object.keys(o);
+}
+function defaults() {
+  const s = {};
+  for (const f of fields.values()) s[f.id] = f.default ?? optionKeys(f)[0];
+  return s;
+}
+function fix(s) {
+  // Keep every value legal: a door color has to exist on the door you just picked.
+  for (const f of fields.values()) {
+    if (f.kind === 'range') s[f.id] = Math.min(f.max, Math.max(f.min, Number(s[f.id]) || 0));
+    else if (f.kind === 'toggle') s[f.id] = s[f.id] === true || s[f.id] === '1' || s[f.id] === 'true';
+    else if (!optionKeys(f).includes(s[f.id])) s[f.id] = f.default ?? optionKeys(f)[0];
+  }
+  return s;
+}
+
+// ---------------------------------------------------------------- parameters, 1: color
+// Recolor by material name. The generator named every material for the paint it wears.
+const brickTexture = makeBrickTexture();
+function colorOf(f, key) {
+  const o = fieldOptions(f).find(x => x[0] === key);
+  return o ? o[2] : null;
+}
+function materialColors() {
+  const out = {};
+  for (const f of fields.values()) {
+    if (f.kind !== 'color') continue;
+    const hex = colorOf(f, settings[f.id]);
+    if (hex) for (const m of f.materials) out[m] = hex;
+  }
+  // Natural brick ignores the body paint; painted brick takes it.
+  const b = contract.brick;
+  out['cladding.brick'] = settings[b.paint_toggle] ? out[fields.get(b.paint_field).materials[0]] : b.natural;
+  return out;
+}
+function applyColors() {
+  const colors = materialColors();
+  root.traverse(o => {
+    if (!o.isMesh) return;
+    for (const m of [].concat(o.material)) {
+      if (colors[m.name]) m.color.set(colors[m.name]);
+      if (m.name === 'glass') { m.transparent = true; m.opacity = 0.35; m.depthWrite = false; }
+      if (m.name === 'cladding.brick' && !m.map) { m.map = brickTexture; m.needsUpdate = true; brickUV(o.geometry); }
+    }
+  });
+}
+
+// A brick texture without UVs in the model: project world position onto the face's plane.
+function makeBrickTexture() {
+  const c = document.createElement('canvas');
+  c.width = 256; c.height = 128;
+  const g = c.getContext('2d');
+  g.fillStyle = '#f4f2ee'; g.fillRect(0, 0, 256, 128);             // mortar, lighter than brick
+  for (let row = 0; row < 4; row++) for (let i = -1; i < 3; i++) {
+    const x = i * 128 + (row % 2) * 64, shade = 196 + ((row * 7 + i * 13) % 5) * 7;
+    g.fillStyle = `rgb(${shade},${shade},${shade})`;
+    g.fillRect(x + 4, row * 32 + 4, 120, 26);
+  }
+  const t = new THREE.CanvasTexture(c);
+  t.wrapS = t.wrapT = THREE.RepeatWrapping;
+  t.colorSpace = THREE.SRGBColorSpace;
+  t.anisotropy = renderer.capabilities.getMaxAnisotropy();   // no shimmer at grazing angles
+  return t;
+}
+function brickUV(geometry) {
+  // One tile = 2 bricks (8" each) across, 4 courses (2 2/3" each) up.
+  const W = 16 * 0.0254, H = 4 * (8 / 3) * 0.0254;
+  if (!geometry.attributes.normal) geometry.computeVertexNormals();
+  const p = geometry.attributes.position, n = geometry.attributes.normal, uv = new Float32Array(p.count * 2);
+  for (let i = 0; i < p.count; i++) {
+    const nx = Math.abs(n.getX(i)), ny = Math.abs(n.getY(i));
+    const u = nx > 0.5 ? p.getZ(i) : p.getX(i), v = ny > 0.5 ? p.getZ(i) : p.getY(i);
+    uv[i * 2] = u / W; uv[i * 2 + 1] = v / H;
+  }
+  geometry.setAttribute('uv', new THREE.BufferAttribute(uv, 2));
+}
+
+// ---------------------------------------------------------------- parameters, 2: swap
+// A slot's file name is a template over the settings. rear-{door}-{cladding}.glb reloads
+// when either changes; everything else stays put.
+function load(url) {
+  if (!cache.has(url)) cache.set(url, loader.loadAsync(url).then(g => g.scene));
+  return cache.get(url);
+}
+async function applySlots() {
+  const jobs = Object.entries(contract.slots).map(async ([id, template]) => {
+    const url = template.replace(/\{(\w+)\}/g, (_, k) => settings[k]);
+    const slot = slots.get(id);
+    if (slot?.url === url) return;
+    const model = await load(url);
+    const now = slots.get(id);
+    if (now && now.url !== slot?.url) return;           // a newer choice won the race
+    if (now) root.remove(now.group);
+    const group = model.clone(true);                     // clone: materials stay per-instance
+    group.traverse(o => { if (o.isMesh) o.material = [].concat(o.material).map(m => m.clone())[0]; });
+    root.add(group);
+    slots.set(id, {url, group});
+  });
+  await Promise.all(jobs);
+  applyColors();
+  applyRanges();
+}
+
+// ---------------------------------------------------------------- parameters, 3: range
+// Slide a named node. How far is the generator's business (it read the spec sheet).
+function applyRanges() {
+  for (const f of fields.values()) {
+    if (f.kind !== 'range') continue;
+    const [by, table] = Object.entries(f.travel_by)[0];
+    const travel = table[settings[by]] || 0;
+    root.traverse(o => {
+      // GLTFLoader strips dots from o.name (door.operable -> dooroperable); the original is in userData.name.
+      if (!(o.userData.name || '').startsWith(f.node)) return;
+      o.userData.home ??= o.position.clone();
+      o.position.x = o.userData.home.x - travel * settings[f.id] / 100;
+    });
+  }
+}
+
+// ---------------------------------------------------------------- the panel
+function swatch(f, [key, name, hex]) {
+  const b = document.createElement('button');
+  b.className = 'chip';
+  b.style.setProperty('--chip', hex);
+  b.title = name;
+  b.setAttribute('aria-label', name);
+  b.setAttribute('aria-pressed', settings[f.id] === key);
+  b.onclick = () => set(f.id, key);
+  return b;
+}
+function buildPanel() {
+  const body = $('panel-body');
+  body.replaceChildren();
+  for (const s of contract.sections) {
+    const fs = document.createElement('fieldset');
+    const lg = document.createElement('legend');
+    lg.textContent = s.name;
+    fs.append(lg);
+    for (const raw of s.fields) {
+      const f = fields.get(raw.id);
+      if (f.when && Object.entries(f.when).some(([k, v]) => settings[k] !== v)) continue;
+      if (f.id.startsWith('door_') && settings.door === 'none') continue;
+      const row = document.createElement('div');
+      row.className = 'row';
+      const label = document.createElement('label');
+      label.className = 'label';
+      row.append(label);
+      if (f.kind === 'color') {
+        const opts = fieldOptions(f);
+        const current = opts.find(o => o[0] === settings[f.id]);
+        label.innerHTML = `${f.label} <span>${current ? current[1] : ''}</span>`;
+        const chips = document.createElement('div');
+        chips.className = 'chips';
+        for (const o of opts) chips.append(swatch(f, o));
+        row.append(chips);
+      } else if (f.kind === 'swap') {
+        label.textContent = f.label;
+        const seg = document.createElement('div');
+        seg.className = 'seg';
+        for (const [key, o] of Object.entries(f.options)) {
+          const b = document.createElement('button');
+          b.textContent = o.label;
+          b.setAttribute('aria-pressed', settings[f.id] === key);
+          b.onclick = () => set(f.id, key);
+          seg.append(b);
+        }
+        row.append(seg);
+        row.append(note(f));
+      } else if (f.kind === 'toggle') {
+        label.innerHTML = `<input type="checkbox" ${settings[f.id] ? 'checked' : ''}> ${f.label}`;
+        label.querySelector('input').onchange = e => set(f.id, e.target.checked);
+      } else if (f.kind === 'range') {
+        label.innerHTML = `${f.label} <span>${Math.round(settings[f.id])}${f.unit || ''}</span>`;
+        const input = document.createElement('input');
+        Object.assign(input, {type: 'range', min: f.min, max: f.max, step: 1, value: settings[f.id]});
+        input.setAttribute('aria-label', f.label);
+        input.oninput = () => { settings[f.id] = Number(input.value); label.querySelector('span').textContent = input.value + (f.unit || ''); applyRanges(); syncURL(); };
+        row.append(input);
+      }
+      fs.append(row);
+    }
+    body.append(fs);
+  }
+}
+function note(f) {
+  const div = document.createElement('div');
+  div.className = 'note';
+  const o = f.options[settings[f.id]];
+  const spec = f.id === 'door' ? contract.door_specs[settings.door] : null;
+  if (spec) {
+    div.innerHTML = `<b>${o.maker} ${o.model}</b><br>Unit ${spec.unit}` +
+      (spec.rough_opening ? ` · rough opening ${spec.rough_opening}` : '') +
+      ` · jamb ${spec.jamb}` + (spec.glass ? `<br>${spec.glass}` : '') +
+      (o.note ? `<br>${o.note}` : '') + `<br><a href="${o.url}" target="_blank" rel="noopener">Spec sheet ↗</a>`;
+  } else div.textContent = o.note || '';
+  return div;
+}
+async function set(id, value) {
+  settings[id] = value;
+  fix(settings);
+  buildPanel();
+  applyColors();
+  syncURL();
+  await applySlots();
+}
+$('panel-toggle').onclick = () => {
+  const open = document.body.classList.toggle('panel-open');
+  $('panel-toggle').setAttribute('aria-expanded', open);
+};
+
+// ---------------------------------------------------------------- views and links
+function showView(i, animate = true) {
+  selected = (i + views.length) % views.length;
+  $('view').value = selected;
+  const v = views[selected];
+  if (walking) walk(false);
+  fly = animate ? {fromPos: camera.position.clone(), fromTarget: orbit.target.clone(), toPos: new THREE.Vector3(...v.eye), toTarget: new THREE.Vector3(...v.target), t: 0} : null;
+  if (!animate) { camera.position.set(...v.eye); orbit.target.set(...v.target); orbit.update(); }
+  syncURL();
+}
+$('prev-view').onclick = () => showView(selected - 1);
+$('next-view').onclick = () => showView(selected + 1);
+$('view').onchange = e => showView(Number(e.target.value));
+
+function linkURL() {
+  const p = new URLSearchParams();
+  for (const f of fields.values()) {
+    const v = settings[f.id];
+    if (v !== (f.default ?? optionKeys(f)[0])) p.set(f.id, f.kind === 'toggle' ? Number(v) : v);
+  }
+  p.set('view', views[selected].name.toLowerCase().replace(/\W+/g, '-'));
+  return location.pathname + '?' + p;
+}
+function syncURL() {
+  clearTimeout(syncURL.t);
+  syncURL.t = setTimeout(() => { try { history.replaceState(null, '', linkURL()); } catch {} }, 200);
+}
+$('share').onclick = async () => {
+  const url = location.origin + linkURL();
+  try { if (navigator.share) await navigator.share({url}); else { await navigator.clipboard.writeText(url); toast('Link copied'); } } catch {}
+};
+function toast(s) {
+  $('toast').textContent = s;
+  $('toast').classList.add('on');
+  clearTimeout(toast.t);
+  toast.t = setTimeout(() => $('toast').classList.remove('on'), 2500);
+}
+
+// ---------------------------------------------------------------- walk
+// Walk: the left thumb on the stick walks, the right thumb drags the canvas to look;
+// keys on a desktop. Keeps the view you had, speeds up while held, double-tap to go there.
+const WALK_SPEED = 1.5, JOG = 2.5, RISE_SPEED = 1, STICK_RADIUS = 48, EYE_HEIGHT = 1.6, WALL_STANDOFF = 0.6, FLOOR_PITCH = -0.14;
+const HOLD_GRACE = 1.2, HOLD_RAMP = 2.5, HOLD_TOP = 3;   // walking pace for nudges, up to 3x to cross the yard
+const DOUBLE_TAP_MS = 350, DOUBLE_TAP_PX = 30, TAP_SLOP_PX = 10;  // iOS Safari sends no dblclick for touches
+const keys = new Set(), stick = [0, 0], rotation = new THREE.Euler(0, 0, 0, 'YXZ');
+let walking = false, look = null, lastTime = 0, held = 0, jog = false, glide = null, fly = null;
+
+function holdPace(t) { const k = Math.min(1, Math.max(0, (t - HOLD_GRACE) / HOLD_RAMP)); return 1 + (HOLD_TOP - 1) * k * k * (3 - 2 * k); }
+// A floor (face pointing up) stands you on it at eye height; anything else stops you short of it.
+function teleportTo(from, hit, normalY) {
+  if (normalY > 0.7) return new THREE.Vector3(hit.x, hit.y + EYE_HEIGHT, hit.z);
+  const dx = hit.x - from.x, dz = hit.z - from.z, flat = Math.hypot(dx, dz);
+  if (flat <= WALL_STANDOFF) return from.clone();
+  const keep = (flat - WALL_STANDOFF) / flat;
+  return new THREE.Vector3(from.x + dx * keep, from.y, from.z + dz * keep);
+}
+function resetStick() { stick[0] = stick[1] = 0; $('walk-knob').style.transform = ''; }
+function walk(on) {
+  walking = on;
+  orbit.enabled = !on;
+  $('walk-pad').hidden = !on;
+  document.body.classList.toggle('walking', on);
+  $('walk').textContent = on ? 'Finish' : 'Walk';
+  fly = glide = look = null; held = 0; keys.clear(); resetStick();
+  if (on) {
+    // Walk from right here, looking where you were; only level the roll.
+    camera.up.set(0, 1, 0);
+    rotation.setFromQuaternion(camera.quaternion, 'YXZ');
+    rotation.z = 0;
+    camera.quaternion.setFromEuler(rotation);
+  } else {
+    const d = new THREE.Vector3();
+    camera.getWorldDirection(d);
+    orbit.target.copy(camera.position).addScaledVector(d, 3);
+    orbit.update();
+  }
+}
+$('walk').onclick = () => walk(!walking);
+$('finish-walk').onclick = () => walk(false);
+{ // the stick: analogue, clamped to its rim, so a gentle push is a slow walk
+  const pad = $('walk-stick'), knob = $('walk-knob');
+  const move = e => {
+    const b = pad.getBoundingClientRect();
+    let x = (e.clientX - b.left - b.width / 2) / STICK_RADIUS, y = -(e.clientY - b.top - b.height / 2) / STICK_RADIUS;
+    const over = Math.max(1, Math.hypot(x, y));
+    x /= over; y /= over;
+    stick[0] = x; stick[1] = y;
+    knob.style.transform = `translate(${x * STICK_RADIUS}px,${-y * STICK_RADIUS}px)`;
+  };
+  pad.onpointerdown = e => { pad.setPointerCapture(e.pointerId); move(e); };
+  pad.onpointermove = e => { if (pad.hasPointerCapture(e.pointerId)) move(e); };
+  pad.onpointerup = pad.onpointercancel = resetStick;
+}
+// Canvas: look in Walk, double-tap anywhere. Track clientX ourselves: iOS leaves movementX at 0 for touches.
+const canvas = renderer.domElement, raycaster = new THREE.Raycaster(), pointers = new Set();
+let press = null, lastTap = null;
+const solid = h => {
+  const m = [].concat(h.object.material)[0];
+  return h.object.isMesh && h.object.visible && !(m?.transparent && m.opacity < 0.9);  // glass doesn't stop a tap
+};
+function goTo(cx, cy) {
+  const b = canvas.getBoundingClientRect();
+  raycaster.setFromCamera(new THREE.Vector2((cx - b.left) / b.width * 2 - 1, -(cy - b.top) / b.height * 2 + 1), camera);
+  const hit = raycaster.intersectObject(root, true).find(solid);
+  if (!hit?.face) return;
+  if (walking) {
+    const ny = hit.face.normal.clone().transformDirection(hit.object.matrixWorld).y, floor = ny > 0.7;
+    glide = {from: camera.position.clone(), to: teleportTo(camera.position, hit.point, ny), fromPitch: rotation.x, toPitch: floor ? Math.max(rotation.x, FLOOR_PITCH) : rotation.x, t: 0};
+    return;
+  }
+  const away = camera.position.clone().sub(hit.point), dist = Math.min(12, Math.max(3, away.length() * 0.5));
+  fly = {fromPos: camera.position.clone(), fromTarget: orbit.target.clone(), toPos: hit.point.clone().add(away.setLength(dist)), toTarget: hit.point.clone(), t: 0};
+}
+canvas.addEventListener('pointerdown', e => {
+  pointers.add(e.pointerId);
+  press = pointers.size === 1 ? {x: e.clientX, y: e.clientY} : null;   // a pinch is not a tap
+  if (walking && !look) { look = {id: e.pointerId, x: e.clientX, y: e.clientY}; canvas.setPointerCapture(e.pointerId); }
+});
+canvas.addEventListener('pointermove', e => {
+  if (!walking || !look || e.pointerId !== look.id) return;
+  rotation.y -= (e.clientX - look.x) * 0.004;
+  rotation.x = Math.max(-1.5, Math.min(1.5, rotation.x - (e.clientY - look.y) * 0.004));
+  look.x = e.clientX; look.y = e.clientY;
+  camera.quaternion.setFromEuler(rotation);
+});
+canvas.addEventListener('pointerup', e => {
+  pointers.delete(e.pointerId);
+  if (look?.id === e.pointerId) look = null;
+  if (!press || Math.hypot(e.clientX - press.x, e.clientY - press.y) > TAP_SLOP_PX) { press = null; return; }
+  press = null;
+  const tap = {x: e.clientX, y: e.clientY, at: performance.now()};
+  if (lastTap && tap.at - lastTap.at < DOUBLE_TAP_MS && Math.hypot(tap.x - lastTap.x, tap.y - lastTap.y) < DOUBLE_TAP_PX) { lastTap = null; goTo(tap.x, tap.y); return; }
+  lastTap = tap;
+});
+canvas.addEventListener('pointercancel', e => { pointers.delete(e.pointerId); if (look?.id === e.pointerId) look = null; press = null; });
+orbit.addEventListener('start', () => { fly = null; });
+const moveKeys = {w: 'forward', s: 'backward', a: 'left', d: 'right', q: 'down', e: 'up', arrowup: 'forward', arrowdown: 'backward', arrowleft: 'left', arrowright: 'right', pageup: 'up', pagedown: 'down'};
+addEventListener('keydown', e => {
+  if (!walking || /INPUT|SELECT|TEXTAREA/.test(e.target.tagName)) return;
+  jog = e.shiftKey;
+  if (e.key === 'Escape') { walk(false); return; }
+  const m = moveKeys[e.key.toLowerCase()];
+  if (m) { keys.add(m); e.preventDefault(); }
+});
+addEventListener('keyup', e => { jog = e.shiftKey; keys.delete(moveKeys[e.key.toLowerCase()]); });
+addEventListener('blur', () => { keys.clear(); jog = false; resetStick(); });   // a key can stick down across an alt-tab
+for (const b of document.querySelectorAll('[data-move]')) {
+  b.onpointerdown = e => { keys.add(b.dataset.move); b.setPointerCapture(e.pointerId); };
+  b.onpointerup = b.onpointercancel = () => keys.delete(b.dataset.move);
+}
+
+const ease = t => 1 - (1 - t) ** 3;
+renderer.setAnimationLoop(time => {
+  const dt = Math.min(0.05, (time - lastTime) / 1000);
+  lastTime = time;
+  if (walking) {
+    let x = stick[0], y = stick[1], z = 0;
+    for (const k of keys) { if (k === 'forward') y++; if (k === 'backward') y--; if (k === 'right') x++; if (k === 'left') x--; if (k === 'up') z++; if (k === 'down') z--; }
+    if (x || y || z) {
+      glide = null; held += dt;
+      const f = new THREE.Vector3(); camera.getWorldDirection(f); f.y = 0; f.normalize();
+      const r = new THREE.Vector3().crossVectors(f, new THREE.Vector3(0, 1, 0));
+      // Level whichever way you look; two keys held aren't faster than one.
+      const step = WALK_SPEED * (jog ? JOG : 1) * holdPace(held) * dt / Math.max(1, Math.hypot(x, y));
+      camera.position.addScaledVector(f, y * step).addScaledVector(r, x * step);
+      camera.position.y += z * RISE_SPEED * dt;
+    } else held = 0;
+    if (glide) {
+      glide.t = Math.min(1, glide.t + dt / 0.45);
+      const k = ease(glide.t);
+      camera.position.lerpVectors(glide.from, glide.to, k);
+      rotation.x = glide.fromPitch + (glide.toPitch - glide.fromPitch) * k;
+      camera.quaternion.setFromEuler(rotation);
+      if (glide.t >= 1) glide = null;
+    }
+  } else {
+    if (fly) {
+      fly.t = Math.min(1, fly.t + dt / 0.6);
+      const k = ease(fly.t);
+      camera.position.lerpVectors(fly.fromPos, fly.toPos, k);
+      orbit.target.lerpVectors(fly.fromTarget, fly.toTarget, k);
+      if (fly.t >= 1) fly = null;
+    }
+    orbit.update();
+  }
+  renderer.render(scene, camera);
+});
+
+// ---------------------------------------------------------------- start
+(async () => {
+  contract = await (await fetch('controls.json')).json();
+  for (const s of contract.sections) for (const f of s.fields) fields.set(f.id, f);
+  views = contract.views;
+  for (const [i, v] of views.entries()) $('view').add(new Option(v.name, i));
+  const q = new URLSearchParams(location.search);
+  settings = defaults();
+  for (const f of fields.values()) if (q.has(f.id)) settings[f.id] = f.kind === 'range' ? Number(q.get(f.id)) : q.get(f.id);
+  fix(settings);
+  buildPanel();
+  root.add((await load('model/house.glb')).clone(true));
+  await applySlots();
+  const vi = views.findIndex(v => v.name.toLowerCase().replace(/\W+/g, '-') === q.get('view'));
+  showView(vi < 0 ? 0 : vi, false);
+  window.viewer = {THREE, scene, camera, root, orbit, settings: () => settings, set};   // for tests and the console
+  $('loading').remove();
+  document.body.classList.add('ready');
+})();

@@ -1,0 +1,75 @@
+# Rear sliding door options, read off each manufacturer's published sheet (checked
+# 2026-11-04). Sizes are the 2-panel unit closest to a 6'0" x 6'8" opening. Where a
+# sheet doesn't publish a number (stile width on two of them), it's marked estimate.
+#
+# Frame colors are each maker's real color names. The hex values are NOT published by
+# the makers: they are by-eye approximations for the screen. Order a sample.
+
+none:
+  label: Keep the window
+  note: The existing 3' x 5' window. No door.
+  colors: {white: {name: White, hex: "#EEEEEA"}}
+
+andersen200:
+  label: Andersen 200
+  maker: Andersen
+  model: 200 Series Perma-Shield Gliding Patio Door, PS51168
+  url: https://andersenwindows.com/windows-and-doors/doors/sliding-patio-doors/200-series-perma-shield-gliding-patio-door
+  source: spec   # 200 Series product guide 110004, pp. 32-34
+  unit: {width: 5' 10 1/2", height: 6' 7 1/2"}         # "outside frame to frame"
+  rough_opening: {width: 5' 11 1/4", height: 6' 8"}    # minimum
+  jamb_depth: 4 9/16"
+  stile: 3 1/2"          # estimate: not published
+  top_rail: 3 1/2"       # estimate
+  bottom_rail: 4 1/2"    # estimate
+  glass: Low-E tempered dual-pane; unobstructed glass 30 3/8" x 71"
+  colors:
+    white: {name: White, hex: "#EEEDE7"}
+    canvas: {name: Canvas, hex: "#DCD5C4"}
+    sandtone: {name: Sandtone, hex: "#C9B99A"}
+    terratone: {name: Terratone, hex: "#6B5A4A"}
+    dark_bronze: {name: Dark Bronze, hex: "#3B3129"}
+    black: {name: Black, hex: "#232323"}
+
+marvin:
+  label: Marvin Elevate
+  maker: Marvin
+  model: Elevate Sliding Patio Door, ELSPD6065 (XO/OX)
+  url: https://www.marvin.com/f/1019562/x/cdb81f81bd/marvin-elevate-sliding-patio-door-adm.pdf
+  source: spec   # Elevate sliding patio door ADM + elevations sheet
+  unit: {width: 5' 11", height: 6' 7 1/2"}             # frame size
+  rough_opening: {width: 6', height: 6' 8"}
+  jamb_depth: 4 9/16"
+  stile: 2 5/16"         # "stiles and rails 2 5/16" (58)"
+  top_rail: 2 5/16"
+  bottom_rail: 2 5/16"
+  glass: 3/4" insulating glass, Low E2 with argon; daylight opening 31" x 72 1/32"
+  colors:
+    stone_white: {name: Stone White, hex: "#E6E2D6"}
+    pebble_gray: {name: Pebble Gray, hex: "#B9B6AC"}
+    cashmere: {name: Cashmere, hex: "#D8CDB8"}
+    bronze: {name: Bronze, hex: "#4A3D31"}
+    gunmetal: {name: Gunmetal, hex: "#4B4E50"}
+    ebony: {name: Ebony, hex: "#262626"}
+
+pella:
+  label: Pella Lifestyle
+  maker: Pella
+  model: Lifestyle Series Sliding Patio Door, 7280 (OX)
+  url: https://media.pella.com/professional/adm/Clad-Wood-LS/Pella-LifestyleSeries-SlidingDoor.pdf
+  source: spec   # 2026 ADM, sheets LS-SD-8 and LS-SD-20
+  unit: {width: 5' 11 1/4", height: 6' 7 1/2"}         # frame
+  rough_opening: {width: 6', height: 6' 8"}
+  jamb_depth: 5 7/8"     # "frame depth is 5-7/8" (149 mm)"
+  stile: 3"              # estimate: not published
+  top_rail: 3"           # estimate
+  bottom_rail: 4"        # estimate
+  glass: 3/4" double-pane tempered, Low-E options
+  note: Pella lists more clad colors than these; confirm which ones this door takes with a rep.
+  colors:
+    white: {name: White, hex: "#EFEFEA"}
+    fossil: {name: Fossil, hex: "#B8B1A2"}
+    hartford_green: {name: Hartford Green, hex: "#2E3A31"}
+    brick_red: {name: Brick Red, hex: "#6E2E26"}
+    iron_ore: {name: Iron Ore, hex: "#434341"}
+    black: {name: Black, hex: "#222222"}

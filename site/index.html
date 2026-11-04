@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>3d-model-skill example house</title>
+<meta name="description" content="A parametric 3D rowhouse: change the cladding, paint, porch colors and the rear sliding door.">
+<link rel="stylesheet" href="style.css">
+<script type="importmap">{"imports":{"three":"./vendor/three.module.js"}}</script>
+</head>
+<body>
+<div id="viewport"></div>
+<header id="title"><b>3d-model-skill</b><span>example house</span></header>
+<aside id="panel" aria-label="Design options">
+  <button id="panel-toggle" aria-expanded="false" aria-controls="panel-body">Design</button>
+  <div id="panel-body"></div>
+</aside>
+<nav id="dock" aria-label="Views">
+  <button id="prev-view" aria-label="Previous view">‹</button>
+  <select id="view" aria-label="Viewpoint"></select>
+  <button id="next-view" aria-label="Next view">›</button>
+  <button id="walk">Walk</button>
+  <button id="share">Share</button>
+</nav>
+<div id="walk-pad" hidden>
+  <div id="walk-stick" role="img" aria-label="Walk joystick"><div id="walk-knob"></div></div>
+  <div class="walk-keys"><button data-move="forward" aria-label="Forward">↑</button><div><button data-move="left" aria-label="Left">←</button><button data-move="backward" aria-label="Back">↓</button><button data-move="right" aria-label="Right">→</button></div></div>
+  <div class="walk-rise"><button data-move="up" aria-label="Rise">▲</button><button data-move="down" aria-label="Drop">▼</button></div>
+  <button id="finish-walk">Finish walking</button>
+  <small class="walk-hint-keys">Drag to look · WASD or arrows (hold to speed up) · Shift to jog · Q/E down/up · double-click to go there · Esc to finish</small>
+  <small class="walk-hint-touch">Left thumb walks, hold to speed up · drag to look · double-tap to go there</small>
+</div>
+<div id="toast" role="status"></div>
+<div id="loading">Loading model…</div>
+<script type="module" src="app.js"></script>
+</body>
+</html>

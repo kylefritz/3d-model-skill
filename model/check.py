@@ -22,6 +22,12 @@ import build  # noqa: E402
 problems = []
 
 
+def frac_in(x):
+    sys.path.insert(0, str(Path(__file__).parent))
+    import drawings
+    return drawings.frac(x)
+
+
 def check(ok, msg):
     if not ok:
         problems.append(msg)
@@ -69,6 +75,13 @@ check(pc["rail_height"] >= 36, "guard under 36\"")
 contract = json.loads((build.SITE / "controls.json").read_text())
 fields = {f["id"]: f for s in contract["sections"] for f in s["fields"]}
 swaps = {k: list(f["options"]) for k, f in fields.items() if f["kind"] == "swap"}
+swaps.update({k: [str(v) for v in f["values"]] for k, f in fields.items() if f["kind"] == "steps"})
+
+# slider steps stay inside what the code and the roofing allow
+for v in fields["rail_height"]["values"]:
+    check(v >= 36, f"guard height step {v}\" is under the 36\" minimum")
+for v in fields["porch_pitch"]["values"]:
+    check(v >= 0.5, f"roof pitch step {v} in 12 is under 1/2 in 12, too flat for metal roofing")
 for slot, template in contract["slots"].items():
     keys = [k for k in swaps if "{" + k + "}" in template]
     for combo in itertools.product(*(swaps[k] for k in keys)):
@@ -86,6 +99,38 @@ first = contract["assets"]["model/house.glb"]["bytes"] + sum(
     contract["assets"][t.format(**{k: fields[k]["default"] for k in swaps})]["bytes"] for t in contract["slots"].values())
 check(first < 6e6, f"first load is {first / 1e6:.1f} MB (budget 6 MB)")
 total = sum(a["bytes"] for a in contract["assets"].values())
+
+# drawings and takeoff (run model/drawings.py first): drawn = cut = bought
+takeoff_path = build.SITE / "drawings/takeoff.json"
+check(takeoff_path.exists(), "no drawings: run model/drawings.py")
+if takeoff_path.exists():
+    takeoff = json.loads(takeoff_path.read_text())
+    for slug, t in takeoff.items():
+        cut = {}
+        for pc in t["pieces"]:
+            cut.setdefault(pc["profile"], []).extend([round(pc["length"], 4)] * pc["qty"])
+        for b in t["bought"]:
+            got = sorted(round(x, 4) for board in b["boards"] for x in board)
+            check(got == sorted(cut.get(b["profile"], [])), f"{slug}: {b['profile']} boards don't hold exactly the cut list")
+            for board in b["boards"]:
+                check(board, f"{slug}: a {b['profile']} board bought for nothing")
+                used = sum(board) + 0.125 * (len(board) - 1)
+                check(used <= b["stock_ft"] * 12, f"{slug}: {b['profile']} board over-cut ({used:.2f}\" from {b['stock_ft']}')")
+        for prof in cut:
+            if prof in ("2x2", "2x3", "2x4", "6x6", "PT 2x8"):
+                check(any(b["profile"] == prof for b in t["bought"]), f"{slug}: {prof} is cut but never bought")
+        page_html = (build.SITE / "drawings" / slug / "index.html").read_text()
+        if "balusters_drawn" in t:
+            on_plan = page_html.count('class="baluster"')
+            check(t["balusters_drawn"] == t["balusters_cut"] == on_plan,
+                  f"{slug}: balusters drawn {t['balusters_drawn']}, on the plan {on_plan}, cut {t['balusters_cut']}")
+        if slug.startswith("door-"):
+            m0, m1 = t["mo"][0], t["mo"][1]
+            wall = p["wx1"] - p["wx0"]
+            bearing = spec["rear_door_install"]["lintel_bearing"]
+            check(m0 >= bearing + 4 and wall - m1 >= bearing + 4, f"{slug}: lintel needs {bearing}\" bearing plus 4\" of brick past it each side")
+            for k in ("unit", "ro", "mo"):
+                check(frac_in(t[k][1] - t[k][0]) in page_html, f"{slug}: the {k} width isn't on the drawings")
 
 if problems:
     print("\n".join("FAIL " + x for x in problems))

@@ -27,6 +27,13 @@ SHOTS = {
     "inside": ("door=pella&door_open=80&view=inside", "desktop"),
     "phone-street": ("cladding=lap&body=sw2802&view=street", "phone"),
     "phone-panel": ("cladding=batten&body=sw6244&view=front-porch&panel=1", "phone"),
+    "porch-sliders": ("porch_depth=6&porch_pitch=4&rail_height=42&porch_trim=sw6258&view=front-porch&scroll=porch", "desktop"),
+}
+DRAWINGS = {
+    # name: (drawing set, which svg on the page)
+    "drawing-door-elevation": ("door-andersen200", 0),
+    "drawing-door-jamb": ("door-andersen200", 1),
+    "drawing-railing": ("porch-36-8", 0),
 }
 VIEWPORTS = {
     "desktop": dict(viewport={"width": 1280, "height": 800}, device_scale_factor=1),
@@ -47,9 +54,18 @@ def main(base, out, only=None):
             page.wait_for_function("document.body.classList.contains('ready')", timeout=60000)
             if "panel=1" in query:
                 page.click("#panel-toggle")
+            if "scroll=porch" in query:
+                page.evaluate("[...document.querySelectorAll('legend')].find(l => l.textContent === 'Front porch').scrollIntoView()")
             page.wait_for_timeout(1500)
             page.screenshot(path=str(out / f"{name}.png"))
             page.close()
+            print(out / f"{name}.png")
+        page = browser.new_page(viewport={"width": 1000, "height": 900}, device_scale_factor=2)
+        for name, (slug, i) in DRAWINGS.items():
+            if only and name not in only:
+                continue
+            page.goto(f"{base}drawings/{slug}/")
+            page.query_selector_all("main svg")[i].screenshot(path=str(out / f"{name}.png"))
             print(out / f"{name}.png")
         browser.close()
 

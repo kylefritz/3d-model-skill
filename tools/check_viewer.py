@@ -64,7 +64,33 @@ def main(base):
         after = page.evaluate("(() => { let x; viewer.root.traverse(o => { if ((o.userData.name || '').startsWith('door.operable')) x = o.position.x; }); return x; })()")
         check(before is not None and after < before - 0.3, f"door slides open ({before} -> {after})")
 
-        # walk keeps the view
+        # steps: a geometry slider loads its pre-built shape, and the drawings link follows it
+        page.evaluate("viewer.set('rail_height', '42')")
+        page.evaluate("viewer.set('porch_depth', '6')")
+        page.wait_for_timeout(1500)
+        check("rail_height=42" in page.url and "porch_depth=6" in page.url, "geometry sliders land in the share link")
+        page.click("#panel-toggle")
+        hrefs = page.evaluate("[...document.querySelectorAll('a.drawings')].map(a => a.getAttribute('href'))")
+        check("drawings/porch-42-6/" in hrefs, f"porch drawings link follows the sliders ({hrefs})")
+        check("drawings/door-marvin/" in hrefs, "door drawings link follows the door")
+        r = page.request.get(base + "drawings/porch-42-6/")
+        check(r.ok and "porch-42-6.pdf" in r.text(), "that drawing set exists")
+        page.click("#panel-toggle")
+
+        # a tour moves the camera on its own, then gives orbit back
+        page.wait_for_timeout(300)
+        c0 = cam(page)
+        page.click("#tour")
+        page.wait_for_timeout(2500)
+        check(dist(c0, cam(page)) > 1, "Tour flies the camera")
+        page.click("#tour")
+        check(page.evaluate("viewer.orbit.enabled"), "stopping the tour gives orbit back")
+
+        # walk keeps the view (from a known spot: the tour left the camera somewhere).
+        # Wait on state, not time: headless WebGL can run at 5 fps, and the viewer caps each
+        # frame's step, so a 0.6 s flight can take seconds of wall clock.
+        page.select_option("#view", "2")
+        page.wait_for_function("!viewer.moving()", timeout=20000)
         start_dir = page.evaluate("viewer.camera.getWorldDirection(new viewer.THREE.Vector3()).toArray()")
         page.click("#walk")
         page.wait_for_timeout(200)
@@ -72,33 +98,32 @@ def main(base):
         check(dist(start_dir, same_dir) < 0.05, "entering Walk keeps the view")
         check(page.is_visible("#walk-stick"), "joystick shows on a touch screen")
 
-        # hold the stick forward: it moves, and the second half of a hold covers more ground
+        # double-tap the ground in the lower middle of the screen, while there's yard ahead
+        before = cam(page)
+        for _ in range(2):
+            page.touchscreen.tap(195, 560)
+            page.wait_for_timeout(120)
+        page.wait_for_function("!viewer.moving()", timeout=20000)
+        moved = dist(before, cam(page))
+        check(moved > 0.3, f"double-tap goes there ({moved:.2f} m)")
+
+        # hold the stick forward: it walks, level, and the pace climbs while held
         box = page.locator("#walk-stick").bounding_box()
         cx, cy = box["x"] + box["width"] / 2, box["y"] + box["height"] / 2
         page.mouse.move(cx, cy)
         page.mouse.down()
         page.mouse.move(cx, cy - 60)
         p0 = cam(page)
-        page.wait_for_timeout(1800)
+        try:
+            page.wait_for_function("viewer.walkPace() > 1.3", timeout=30000)
+            pace = page.evaluate("viewer.walkPace()")
+        except Exception:
+            pace = page.evaluate("viewer.walkPace()")
         p1 = cam(page)
-        page.wait_for_timeout(1800)
-        p2 = cam(page)
         page.mouse.up()
-        early, late = dist(p0, p1), dist(p1, p2)
-        check(early > 0.05, f"stick walks ({early:.2f} m in the first 1.8 s)")
-        check(late > early * 1.2, f"holding speeds up ({early:.2f} m then {late:.2f} m)")
-        check(abs(p2[1] - p0[1]) < 0.01, "walking stays level")
-
-        # double-tap the ground in the lower middle of the screen
-        page.wait_for_timeout(300)
-        before = cam(page)
-        x, y = 195, 560
-        page.touchscreen.tap(x, y)
-        page.wait_for_timeout(120)
-        page.touchscreen.tap(x, y)
-        page.wait_for_timeout(1500)
-        moved = dist(before, cam(page))
-        check(moved > 0.3, f"double-tap goes there ({moved:.2f} m)")
+        check(dist(p0, p1) > 0.05, f"stick walks ({dist(p0, p1):.2f} m)")
+        check(pace > 1.3, f"holding speeds up (pace reached {pace:.2f}x)")
+        check(abs(p1[1] - p0[1]) < 0.01, "walking stays level")
 
         check(not errors, f"no page errors {errors[:2]}")
         browser.close()

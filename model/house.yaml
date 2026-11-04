@@ -52,11 +52,12 @@ porch:
   baluster: 1 1/2"
   baluster_gap: 3 7/8"     # under the 4" sphere rule
   ceiling: 8' 8"           # above porch floor
-  roof_pitch_drop: 10"     # front edge is this far below the wall end
+  roof_pitch: 1 1/2        # inches of fall per 12" of run, toward the street
   stair: {x: 1', width: 4', risers: 3, tread: 11"}
 
 site:
   source: estimate
+  front_line: -11'        # where the public sidewalk starts, from the front wall
   sidewalk: 10'
   street: 30'
   yard_depth: 30'
@@ -65,3 +66,13 @@ site:
 neighbors:
   source: estimate         # context only, massed as plain blocks
   count_each_side: 1
+
+# How the slider goes into a 12" brick bearing wall. One set of numbers for the 3D
+# model, the drawings and the cut list (see build.rear_opening).
+rear_door_install:
+  source: estimate         # typical practice; the lintel is sized by an engineer, not here
+  buck: 1 1/2"             # PT 2x8 jambs and head, fastened to the masonry
+  door_setback: 4"         # door frame sits behind the face brick, so the brick returns form a reveal
+  lintel_bearing: 8"       # each side, steel angle under the face brick
+  lintel_angle: L 3 1/2 x 3 1/2 x 5/16 (estimate; engineer to size)
+  inner_lintel: by engineer    # the 8" behind the face brick carries the floor above

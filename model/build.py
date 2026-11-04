@@ -53,7 +53,7 @@ def load(name):
 def resolve(node):
     """Turn every length string in a spec tree into inches. Leaves sources and names alone."""
     if isinstance(node, dict):
-        return {k: (v if k in ("source", "side", "name", "label", "url", "note") else resolve(v)) for k, v in node.items()}
+        return {k: (v if k in ("source", "side", "name", "label", "url", "note", "lintel_angle", "inner_lintel", "glass", "model", "maker") else resolve(v)) for k, v in node.items()}
     if isinstance(node, list):
         return [resolve(v) for v in node]
     if isinstance(node, str):
@@ -178,7 +178,8 @@ def clad_brick(part, wall, spec):
     for u0, u1, zb, zt in wall.openings:
         if zb > wall.z0 + 1:  # a sill under windows, not doors
             part.add("concrete", wall.solid(u0 - 2, u1 + 2, zb - 2.5, zb, -4, 1.5))
-        part.add("concrete", wall.solid(u0 - 4, u1 + 4, zt, zt + 7.5, -4, 0.25))  # lintel
+        bearing = spec["rear_door_install"]["lintel_bearing"]
+        part.add("concrete", wall.solid(u0 - bearing, u1 + bearing, zt, zt + 7.5, -4, 0.25))  # lintel, as on the drawings
 
 
 def casings(part, wall, proud):
@@ -272,7 +273,7 @@ def front_door(part, wall, opening, transom):
     part.add("hardware", wall.solid(u1 - 5, u1 - 3.5, zb + 36, zb + 38, -3.4, -1.4))
 
 
-def slider(part, wall, center, door):
+def slider(part, wall, center, door, t_out=-1.0):
     """A two-panel sliding patio door built from its spec sheet: unit size, jamb
     depth, panel stiles and rails. The operable (exterior-side) panel is its own
     node so the viewer can slide it; travel is written to the contract."""
@@ -281,7 +282,6 @@ def slider(part, wall, center, door):
     stile, top, bottom = door["stile"], door["top_rail"], door["bottom_rail"]
     frame = door.get("frame", 1.75)
     u0, u1 = center - W / 2, center + W / 2
-    t_out = -1.0           # set near the outside face; an outswing screen would go outside this
     t_in = t_out - D
     for c in ((u0, u0 + frame, 0, H), (u1 - frame, u1, 0, H), (u0, u1, H - frame, H), (u0, u1, 0, 0.9)):
         part.add("door.frame", wall.solid(c[0], c[1], c[2], c[3], t_in, t_out))
@@ -301,6 +301,66 @@ def slider(part, wall, center, door):
         if node is not part:
             node.add("hardware", wall.solid(b - stile - 0.4, b - stile + 0.6, z0 + 34, z0 + 42, t + th / 2, t + th / 2 + 1))
     return (u0, u1, 0, H), pw - overlap  # rough opening face, travel in inches
+
+
+# ---------------------------------------------------------------- shared layouts
+# The 3D model, the drawings and the cut list all call these, so they can't disagree.
+
+def rear_opening(spec, p, door):
+    """The rear door, from the spec sheet out: unit inside rough opening inside a PT
+    buck inside the masonry opening. All in the rear wall's u (along) and z (up)."""
+    L = p["wx1"] - p["wx0"]
+    c = L / 2
+    if not door.get("unit"):
+        e = spec["rear"]["existing_rear_window"]
+        o = (c - e["width"] / 2, c + e["width"] / 2, e["sill"], e["sill"] + e["height"])
+        return {"wall": L, "center": c, "mo": o, "window": o}
+    ins = spec["rear_door_install"]
+    b = ins["buck"]
+    uw, uh = door["unit"]["width"], door["unit"]["height"]
+    rw, rh = door["rough_opening"]["width"], door["rough_opening"]["height"]
+    return {
+        "wall": L, "center": c, "buck": b,
+        "unit": (c - uw / 2, c + uw / 2, 0.0, uh),
+        "ro": (c - rw / 2, c + rw / 2, 0.0, rh),
+        "mo": (c - rw / 2 - b, c + rw / 2 + b, 0.0, rh + b),
+        "setback": ins["door_setback"],
+        "bearing": ins["lintel_bearing"],
+    }
+
+
+def rail_runs(spec, p):
+    """Guard runs on the porch: between posts across the front (skipping the stair
+    bay) and down both sides to the house. Each is ((x0, y0), (x1, y1)) in inches."""
+    pc = spec["porch"]
+    post, d = pc["post"], pc["depth"]
+    edge = -d + post / 2 + 0.75
+    st = pc["stair"]
+    gap = (st["x"] - 2, st["x"] + st["width"] + 2)
+    posts = pc["posts_x"]
+    runs = [((a + post / 2, edge), (b - post / 2, edge)) for a, b in zip(posts, posts[1:]) if not (a < gap[1] and b > gap[0])]
+    runs += [((posts[0], edge + post / 2), (posts[0], -12)), ((posts[-1], edge + post / 2), (posts[-1], -12))]
+    return runs
+
+
+def baluster_layout(length, pc):
+    """How many balusters fit a run with every gap under the 4" sphere, and where
+    they go: evenly spaced, with the leftover split between the two ends."""
+    pitch = pc["baluster"] + pc["baluster_gap"]
+    n = int((length - pc["baluster_gap"]) // pitch)
+    start = (length - (n * pitch - pc["baluster_gap"])) / 2
+    return n, start, pitch
+
+
+RAIL = {"cap": (3.5, 1.5), "bottom": (2.5, 1.5), "bottom_gap": 3.0}  # 2x4 cap flat, 2x3 bottom rail, 3" off the floor
+
+
+def porch_variant(spec, pitch, rail, depth):
+    """The spec with one slider position applied. Sliders that change shape are
+    built at every step, so the model and the drawings always match."""
+    v = json.loads(json.dumps(spec))
+    v["porch"].update(roof_pitch=float(pitch), rail_height=float(rail), depth=float(depth) * 12)
+    return v
 
 
 # ---------------------------------------------------------------- the house
@@ -366,8 +426,8 @@ def shell(spec, p) -> Part:
     for o in rear_main.openings + wing_west.openings:
         window(part, rear_main if o in rear_main.openings else wing_west, o)
     # party walls (interior faces only show) and the wing's east wall against the neighbor's wing
-    part.add("interior.wall", box(0, T, 0, D, grade, roof))
-    part.add("interior.wall", box(W - T, W, 0, D, grade, roof))
+    part.add("interior.wall", box(0, T, T, D, grade, roof))   # from behind the front wall: a shared face z-fights
+    part.add("interior.wall", box(W - T, W, T, D, grade, roof))
     part.add("interior.wall", box(W - T, W, D, p["wy1"] - T, grade, p["wing_roof"]))  # stops where the rear wall starts
     # rear wall of the main block behind the wing: only the doorway between them
     part.add("interior.wall", box(p["wx0"], W - T, D - T, D, f1 - fd, roof))
@@ -389,7 +449,6 @@ def shell(spec, p) -> Part:
     part.add("paint.trim", box(0, W, -c["projection"] * 0.55, 0, top - c["height"], top - 4))
     for x in np.linspace(2, W - 7, 5):
         part.add("paint.trim", box(x, x + 5, -c["projection"] * 0.9, 0, top - c["height"] - 4, top - 4))
-    porch(part, spec, p)
     site(part, spec, p)
     return part
 
@@ -411,28 +470,29 @@ def porch(part, spec, p):
     # beam, ceiling and a shed roof that drops toward the street
     part.add("porch.trim", box(0, W, -d, -d + 7, ceiling, ceiling + 9))
     part.add("porch.ceiling", box(0, W, -d + 7, 0, ceiling, ceiling + 0.75))
-    wall_end, street_end = ceiling + 9 + pc["roof_pitch_drop"], ceiling + 9
+    street_end = ceiling + 9
+    wall_end = street_end + pc["roof_pitch"] * (d + 6) / 12   # pitch is inches of fall per foot
     for x0 in np.arange(0, W, 24):  # roof as standing-seam strips
         x1 = min(W, x0 + 24)
         part.add("roof.metal", hexa({(i, j, k): ((x0, x1)[i], (-d - 6, 0)[j], ((street_end, wall_end)[j]) + (0, 1)[k]) for i in (0, 1) for j in (0, 1) for k in (0, 1)}))
         part.add("roof.metal", box(x1 - 0.5, x1, -d - 6, 0, street_end + 1, street_end + 2.2))
     part.add("porch.trim", box(0, W, -d - 6.5, -d - 5.5, street_end - 6, street_end + 1))  # fascia
-    # rails between posts, skipping the stair bay
-    st = pc["stair"]
-    gap = (st["x"] - 2, st["x"] + st["width"] + 2)
-    posts = pc["posts_x"]
-    runs = [((a + post / 2, edge), (b - post / 2, edge)) for a, b in zip(posts, posts[1:]) if not (a < gap[1] and b > gap[0])]
-    runs += [((posts[0], edge + post / 2), (posts[0], -12)), ((posts[-1], edge + post / 2), (posts[-1], -12))]
-    for (ax, ay), (bx, by) in runs:
-        rail(part, (ax, ay), (bx, by), fl, pc)
+    for a, b in rail_runs(spec, p):
+        rail(part, a, b, fl, pc)
     # stairs down to the sidewalk
+    st = pc["stair"]
     rise = (fl - grade) / st["risers"]
-    for i in range(st["risers"]):
+    # n risers, n - 1 treads: the last step down lands on the walk
+    for i in range(st["risers"] - 1):
         z = fl - rise * (i + 1)
         y = -d - st["tread"] * (i + 1)
         part.add("porch.floor", box(st["x"], st["x"] + st["width"], y, y + st["tread"] + 1, z - 1, z))
         part.add("porch.trim", box(st["x"], st["x"] + st["width"], y + st["tread"], y + st["tread"] + 0.75, z, z + rise - 1))
         part.add("porch.trim", box(st["x"], st["x"] + st["width"], y, y + st["tread"], grade, z - 1))
+    bottom = -d - st["tread"] * (st["risers"] - 1)
+    part.add("porch.trim", box(st["x"], st["x"] + st["width"], bottom, bottom + 0.75, grade, grade + rise - 1))  # last riser
+    # walk from the bottom step to the sidewalk, whatever the porch depth
+    part.add("concrete", box(st["x"] - 6, st["x"] + st["width"] + 6, spec["site"]["front_line"], bottom, grade - 1, grade))
 
 
 def rail(part, a, b, fl, pc):
@@ -446,20 +506,19 @@ def rail(part, a, b, fl, pc):
         y0, y1 = min(ay, by) + s0, min(ay, by) + s1
         return box(ax - w / 2, ax + w / 2, y0, y1, z0, z1)
     h = pc["rail_height"]
-    part.add("porch.trim", seg(0, length, fl + h - 1.5, fl + h, 3.5))   # cap
-    part.add("porch.trim", seg(0, length, fl + 3, fl + 4.5, 2.5))       # bottom rail
-    pitch = pc["baluster"] + pc["baluster_gap"]
-    n = int((length - pc["baluster_gap"]) // pitch)
-    start = (length - (n * pitch - pc["baluster_gap"])) / 2
+    (cw, ct), (bw, bt), bg = RAIL["cap"], RAIL["bottom"], RAIL["bottom_gap"]
+    part.add("porch.trim", seg(0, length, fl + h - ct, fl + h, cw))       # cap
+    part.add("porch.trim", seg(0, length, fl + bg, fl + bg + bt, bw))     # bottom rail
+    n, start, pitch = baluster_layout(length, pc)
     for i in range(n):
         s = start + i * pitch
-        part.add("porch.trim", seg(s, s + pc["baluster"], fl + 4.5, fl + h - 1.5, pc["baluster"]))
+        part.add("porch.trim", seg(s, s + pc["baluster"], fl + bg + bt, fl + h - ct, pc["baluster"]))
 
 
 def site(part, spec, p):
     s, W, grade = spec["site"], p["W"], p["grade"]
     d = spec["porch"]["depth"]
-    front = -d - spec["porch"]["stair"]["tread"] * spec["porch"]["stair"]["risers"] - 2
+    front = s["front_line"]
     yard_end = p["wy1"] + s["yard_depth"]
     n = spec["neighbors"]["count_each_side"]
     span = (-W * (n + 1), W * (n + 2))
@@ -467,7 +526,6 @@ def site(part, spec, p):
     part.add("concrete", box(*span, front - s["sidewalk"] - 6, front - s["sidewalk"], grade - 12, grade))  # curb
     part.add("street", box(*span, front - s["sidewalk"] - s["street"], front - s["sidewalk"] - 6, grade - 13, grade - 6))
     part.add("ground", box(*span, front, yard_end + 240, grade - 8, grade - 0.5))
-    part.add("concrete", box(0, W, front, -d, grade - 1, grade))
     # fence around the yard, boards on a 2x4 frame
     fh = s["fence_height"]
     runs = [((0, p["D"]), (0, yard_end)), ((W, p["wy1"]), (W, yard_end)), ((0, yard_end), (W, yard_end))]
@@ -499,25 +557,24 @@ def site(part, spec, p):
 def rear(spec, p, door, cladding, seed):
     """The rear wing's back wall, masonry and skin, opened for one door."""
     part = Part()
-    center = (p["wx1"] - p["wx0"]) / 2
-    if door.get("unit"):
-        W, H = door["unit"]["width"], door["unit"]["height"]
-        opening = (center - W / 2, center + W / 2, 0, H)
-    else:
-        e = spec["rear"]["existing_rear_window"]
-        opening = (center - e["width"] / 2, center + e["width"] / 2, e["sill"], e["sill"] + e["height"])
-    wall = rear_wall(spec, p, opening)
+    o = rear_opening(spec, p, door)
+    wall = rear_wall(spec, p, o["mo"])
     masonry(part, wall, p["T"], brick_from=4, inner_from=4)  # starts inside the west wall's brick
     window(part, wall, wall.openings[1])
+    if "ro" in o:  # the PT buck between masonry and rough opening, cased like trim
+        (m0, m1, _, mh), (r0, r1, _, rh) = o["mo"], o["ro"]
+        for a, b in ((m0, r0), (r1, m1)):
+            part.add("paint.trim", wall.solid(a, b, 0, rh, -p["T"], -o["setback"]))
+        part.add("paint.trim", wall.solid(m0, m1, rh, mh, -p["T"], -o["setback"]))
     CLADDING[cladding](part, wall, spec, seed)
     return part, wall
 
 
 def door_part(spec, p, door, wall):
     part = Part()
-    center = (p["wx1"] - p["wx0"]) / 2
+    o = rear_opening(spec, p, door)
     if door.get("unit"):
-        _, travel = slider(part, wall, center, door)
+        _, travel = slider(part, wall, o["center"], door, t_out=-o["setback"])
         return part, travel
     window(part, wall, wall.openings[0])
     return part, 0.0
@@ -596,6 +653,13 @@ def main():
             CLADDING[c](part, wall, spec, seed=i * 10 + j)
         assets[f"options/cladding-{c}.glb"] = write_glb(to_scene(part, colors), SITE / f"options/cladding-{c}.glb")
 
+    steps = {k: [str(v) for v in fields[k]["values"]] for k in ("porch_pitch", "rail_height", "porch_depth")}
+    for pitch, rail, depth in itertools.product(*steps.values()):
+        part = Part()
+        porch(part, porch_variant(spec, pitch, rail, depth), p)
+        rel = f"options/porch-{pitch}-{rail}-{depth}.glb"
+        assets[rel] = write_glb(to_scene(part, colors), SITE / rel)
+
     travel = {}
     for d_id, door in doors.items():
         for i, c in enumerate(claddings):
@@ -633,7 +697,7 @@ def contract_for(opts, doors, travel, spec, p):
             if f["kind"] == "range" and f.get("node") == "door.operable":
                 g["travel_by"] = {"door": travel}
             out.append(g)
-        sections.append({"name": s["name"], "fields": out})
+        sections.append({"name": s["name"], "fields": out, **({"drawings": s["drawings"]} if s.get("drawings") else {})})
     specs = {}
     for k, d in doors.items():
         if d.get("unit"):
@@ -648,6 +712,9 @@ def contract_for(opts, doors, travel, spec, p):
         "brick": {"natural": opts["natural_brick"], **opts["brick_color"]},
         "door_specs": specs,
         "views": [{"name": v["name"], "eye": web(v["eye"]), "target": web(v["target"])} for v in opts["views"]],
+        "tours": [{"name": t["name"], "keys": [{"at": k["at"], "eye": web(k["eye"]), "target": web(k["target"]),
+                                                  **({"set": k["set"]} if k.get("set") else {})} for k in t["keys"]]}
+                  for t in opts.get("tours", [])],
     }
 
 

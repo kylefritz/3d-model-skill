@@ -1,6 +1,6 @@
 ---
 name: 3d-model
-description: Build a measured, parametric 3D model of a house from phone LiDAR scans, tape measurements and spec sheets, and publish it as a static web viewer (GitHub Pages or Cloudflare). Use when someone wants to scan a house or room, turn a scan into a clean model, show design options (paint, siding, a new door, porch colors) in a browser, register a scan to a model, or publish or fix the viewer, including Walk mode and the phone joystick.
+description: Build a measured, parametric 3D model of a house from phone LiDAR scans, tape measurements and spec sheets, and publish it as a static web viewer (GitHub Pages or Cloudflare). Use when someone wants to scan a house or room, turn a scan into a clean model, show design options (paint, siding, a new door, porch colors) in a browser, register a scan to a model, make construction drawings, a cut list or a buy list from the model, record an animated walkthrough, or publish or fix the viewer, including Walk mode and the phone joystick.
 ---
 
 # 3d-model
@@ -8,16 +8,18 @@ description: Build a measured, parametric 3D model of a house from phone LiDAR s
 The model is a clean, editable house built from measured numbers. It is not the scan.
 Scans are lumpy and stop where the phone stopped. The scan is the evidence the numbers
 answer to. The repo this skill ships in is a working example: a made-up rowhouse with
-four claddings, eight paints, porch colors and three real sliding doors.
+four claddings, eight paints, porch colors and sliders, three real sliding doors,
+construction drawings for each, and two animated tours.
 
 ```
 capture (LiDAR + tape) -> register -> model/house.yaml (numbers + sources)
-  -> model/build.py -> site/ (house.glb, options/*.glb, controls.json) -> model/check.py
-  -> publish (GitHub Pages or Cloudflare)
+  -> model/build.py -> site/ (house.glb, options/*.glb, controls.json)
+  -> model/drawings.py -> site/drawings/ (sheets, cut list, buy list, PDFs)
+  -> model/check.py -> publish (GitHub Pages or Cloudflare)
 ```
 
 Read the doc for the step you're on: `docs/capture.md`, `docs/model.md`,
-`docs/parameters.md`, `docs/publish.md`.
+`docs/parameters.md`, `docs/drawings.md`, `docs/publish.md`.
 
 ## 1. Capture
 
@@ -68,7 +70,7 @@ an estimate. Maker colors have names, not hex values. Approximate the hex and sa
 
 ## 4. Parameters
 
-Three kinds, cheapest first (details in `docs/parameters.md`):
+Four kinds, cheapest first (details in `docs/parameters.md`):
 
 - **color**: recolor every material with a given name (`paint.body`). Name materials for the
   paint, not the part.
@@ -77,6 +79,16 @@ Three kinds, cheapest first (details in `docs/parameters.md`):
   cross product, so keep those parts small.
 - **range**: move a named node (`door.operable`) by a distance the generator wrote from
   the spec.
+- **steps**: a slider over a few values that change shape (porch depth, roof pitch,
+  guard height). Build every stop as its own GLB. Don't stretch geometry in the browser:
+  the drawings and cut list have to describe the porch on screen. Pick the stops from
+  real limits (36" guard minimum, 1/2 in 12 for metal roofing) and check them.
+
+**Tours** are keyframes (eye, target, time, optional `set`) in `options.yaml`. The viewer
+plays them; `tools/record_tour.py` renders them frame by frame to MP4 and GIF. Check a
+new path with `--every 1` and read the contact sheet before recording. Keep the target
+on the subject when swinging around, because a camera passing over its own target flips.
+Walk through the open half of a slider, not the meeting stiles.
 
 Add the field to `model/options.yaml`, build the geometry, `make check`. The viewer
 should rarely need a change.
@@ -90,7 +102,29 @@ screenshot before showing anyone. Look for z-fighting stripes, black faces, clip
 views, and a panel covering the subject. After three rounds on one surface, call
 it an estimate instead of tuning the measurement.
 
-## 6. Publish: ask which
+## 6. Drawings, cut list, buy list
+
+Follow `docs/drawings.md`. The rule is **one set of numbers**: drawings call the same
+layout functions the 3D generator does (`build.rear_opening`, `build.rail_runs`,
+`build.baluster_layout`), never a copy. Add new ones to `build.py` and use them in
+both places.
+
+1. Write the brief first in `model/drawings.yaml`: title, what was asked, confidence,
+   open items. The sheet prints all three.
+2. Draw with the `Svg` kit in `model/drawings.py`: `dim()` for dimensions, `note()` for
+   callouts, classes (`brick`, `pt`, `steel`, `eng`) instead of colors. One set per
+   option that changes the drawing, and link it from the viewer section with a
+   `drawings:` template.
+3. Pieces go on the cut list from the same layout; `buy()` packs them with kerf.
+   `make check` proves drawn = cut = bought and no board is bought for nothing.
+4. `make check-drawings` must pass: no overlapping or crossed labels, nothing off the
+   sheet, crossing leaders, or labels under 9 px on a phone. The first run on a new
+   sheet usually fails. Move the label; don't shrink it.
+5. Screenshot every sheet and read it. A passing check doesn't make a sheet clear.
+6. Anything structural gets "by engineer" and an open item. The sheets say "not for
+   construction".
+
+## 7. Publish: ask which
 
 Ask: **"GitHub Pages or Cloudflare?"** Then follow `docs/publish.md`.
 
@@ -135,6 +169,13 @@ Publishing is outward-facing. Confirm before the first deploy, and strip private
 - Open3D's tensor mesh keeps one material. Build the raycast mesh from bare geometry.
 - One RANSAC run on a house is a coin flip. Try several and keep the best ICP fitness.
 - Coplanar faces z-fight. Offset by a few mm.
+- Coplanar faces z-fight, and here it showed as plaster-white stripes in the brick three
+  times (party walls, the wing corner). Raycast the pixel to find the two faces
+  (`window.viewer` is exposed for that), then give each wall its own volume.
+- Headless WebGL can run at 5 fps, and the viewer caps each frame's step, so a 0.6 s
+  flight takes seconds. Tests wait on state (`viewer.moving()`, `viewer.walkPace()`),
+  never on fixed sleeps.
+- A stair with n risers has n - 1 treads. The last step lands on the walk.
 - Brick and other textures on a box-built model: project world position per face
   (no UVs needed), and set anisotropy or it shimmers at grazing angles.
 

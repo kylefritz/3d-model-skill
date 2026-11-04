@@ -48,6 +48,10 @@ legend { font-weight: 650; padding: 0; font-size: 13px; letter-spacing: .2px; }
 .note b { color: var(--ink); font-weight: 600; }
 .note a { color: var(--accent); }
 input[type=range] { width: 100%; accent-color: var(--accent); }
+fieldset a.drawings { display: inline-block; font-size: 12px; color: var(--accent); margin: 2px 0 4px; }
+#dock #tour { background: #c4561a; color: #fff; font-weight: 600; }
+#dock #tour-pick { max-width: 150px; text-overflow: ellipsis; }
+@media (max-width: 720px) { #dock #tour-pick, #dock #share { display: none; } }
 
 /* ---- dock */
 #dock { position: fixed; left: 50%; transform: translateX(-50%); bottom: max(12px, env(safe-area-inset-bottom));

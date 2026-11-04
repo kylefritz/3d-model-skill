@@ -58,6 +58,7 @@ let contract, settings = {}, fields = new Map(), views = [], selected = 0;
 function fieldOptions(f) {
   // A color field can take its choices from another field: each door has its own colors.
   if (f.options_by) return f.options_by_value[settings[f.options_by]] || [];
+  if (f.kind === 'steps') return f.values.map(v => [String(v)]);
   return f.options;
 }
 function optionKeys(f) {
@@ -201,6 +202,13 @@ function buildPanel() {
     const lg = document.createElement('legend');
     lg.textContent = s.name;
     fs.append(lg);
+    // Drawings for exactly what's on screen: the template picks the set for these settings.
+    const sheet = s.drawings?.replace(/\{(\w+)\}/g, (_, k) => settings[k]);
+    if (sheet && !sheet.includes('-none')) {
+      const a = Object.assign(document.createElement('a'), {href: sheet, className: 'drawings', textContent: 'Construction drawings ↗'});
+      a.target = '_blank';
+      fs.append(a);
+    }
     for (const raw of s.fields) {
       const f = fields.get(raw.id);
       if (f.when && Object.entries(f.when).some(([k, v]) => settings[k] !== v)) continue;
@@ -231,6 +239,21 @@ function buildPanel() {
         }
         row.append(seg);
         row.append(note(f));
+      } else if (f.kind === 'steps') {
+        // A slider over pre-built shapes: each stop is its own GLB (and its own drawing set).
+        const vals = f.values.map(String), i = vals.indexOf(settings[f.id]);
+        label.innerHTML = `${f.label} <span>${settings[f.id]}${f.unit || ''}</span>`;
+        const input = document.createElement('input');
+        Object.assign(input, {type: 'range', min: 0, max: vals.length - 1, step: 1, value: i});
+        input.setAttribute('aria-label', f.label);
+        input.setAttribute('list', f.id + '-ticks');
+        input.oninput = () => { label.querySelector('span').textContent = vals[input.value] + (f.unit || ''); };
+        input.onchange = () => set(f.id, vals[input.value]);
+        const ticks = document.createElement('datalist');
+        ticks.id = f.id + '-ticks';
+        for (const [k] of vals.entries()) ticks.append(new Option('', k));
+        row.append(input, ticks);
+        if (f.note) { const n = document.createElement('div'); n.className = 'note'; n.textContent = f.note; row.append(n); }
       } else if (f.kind === 'toggle') {
         label.innerHTML = `<input type="checkbox" ${settings[f.id] ? 'checked' : ''}> ${f.label}`;
         label.querySelector('input').onchange = e => set(f.id, e.target.checked);
@@ -424,8 +447,72 @@ for (const b of document.querySelectorAll('[data-move]')) {
   b.onpointerup = b.onpointercancel = () => keys.delete(b.dataset.move);
 }
 
+// ---------------------------------------------------------------- tours
+// A tour is keyframes: camera eye and target at a time, and optionally settings to apply
+// (a slider eases between keys; anything else switches at its key). Catmull-Rom through
+// the keys makes the path smooth; the picture depends only on t, so a recording can
+// step through it frame by frame (tools/record_tour.py).
+let touring = null;
+function catmull(p0, p1, p2, p3, u) {
+  const u2 = u * u, u3 = u2 * u;
+  return p1.map((_, i) => 0.5 * (2 * p1[i] + (-p0[i] + p2[i]) * u + (2 * p0[i] - 5 * p1[i] + 4 * p2[i] - p3[i]) * u2 + (-p0[i] + 3 * p1[i] - 3 * p2[i] + p3[i]) * u3));
+}
+function tourPose(tour, t) {
+  const k = tour.keys, n = k.length;
+  let i = 0;
+  while (i < n - 2 && t > k[i + 1].at) i++;
+  const span = k[i + 1].at - k[i].at, u = Math.min(1, Math.max(0, (t - k[i].at) / span));
+  const e = u * u * (3 - 2 * u) * 0.35 + u * 0.65;   // a touch of ease at each key
+  const at = j => k[Math.max(0, Math.min(n - 1, j))];
+  return {eye: catmull(at(i - 1).eye, at(i).eye, at(i + 1).eye, at(i + 2).eye, e),
+          target: catmull(at(i - 1).target, at(i).target, at(i + 1).target, at(i + 2).target, e)};
+}
+function tourSettings(tour, t) {
+  const out = {};
+  for (const id of new Set(tour.keys.flatMap(k => Object.keys(k.set || {})))) {
+    const with_ = tour.keys.filter(k => k.set && id in k.set);
+    const before = with_.filter(k => k.at <= t).pop(), after = with_.find(k => k.at > t);
+    if (!before) continue;
+    const f = fields.get(id);
+    if (f?.kind === 'range' && after) {
+      const u = Math.min(1, (t - before.at) / (after.at - before.at)), s = u * u * (3 - 2 * u);
+      out[id] = before.set[id] + (after.set[id] - before.set[id]) * s;
+    } else out[id] = before.set[id];
+  }
+  return out;
+}
+async function tourFrame(tour, t, live = false) {
+  const want = tourSettings(tour, t);
+  let swap = false;
+  for (const [id, v] of Object.entries(want)) {
+    if (settings[id] === v) continue;
+    settings[id] = fields.get(id).kind === 'range' ? v : String(v);
+    if (fields.get(id).kind !== 'range') swap = true;
+  }
+  if (swap) { fix(settings); await applySlots(); buildPanel(); } else { applyRanges(); }
+  if (live && touring?.tour !== tour) return;   // stopped while a model was loading: don't move the camera after Stop
+  const pose = tourPose(tour, t);
+  camera.position.set(...pose.eye);
+  orbit.target.set(...pose.target);
+  camera.lookAt(orbit.target);
+}
+function playTour(tour) {
+  if (walking) walk(false);
+  touring = tour ? {tour, start: performance.now(), busy: false} : null;
+  $('tour').textContent = touring ? 'Stop' : 'Tour';
+  orbit.enabled = !touring;
+}
+$('tour').onclick = () => playTour(touring ? null : contract.tours[Number($('tour-pick').value) || 0]);
+
 const ease = t => 1 - (1 - t) ** 3;
 renderer.setAnimationLoop(time => {
+  if (touring) {
+    const t = (performance.now() - touring.start) / 1000, end = touring.tour.keys.at(-1).at;
+    if (!touring.busy) { touring.busy = true; tourFrame(touring.tour, Math.min(t, end), true).then(() => { if (touring) touring.busy = false; }); }
+    if (t > end + 0.5) playTour(null);
+    renderer.render(scene, camera);
+    return;
+  }
   const dt = Math.min(0.05, (time - lastTime) / 1000);
   lastTime = time;
   if (walking) {
@@ -476,7 +563,12 @@ renderer.setAnimationLoop(time => {
   await applySlots();
   const vi = views.findIndex(v => v.name.toLowerCase().replace(/\W+/g, '-') === q.get('view'));
   showView(vi < 0 ? 0 : vi, false);
-  window.viewer = {THREE, scene, camera, root, orbit, settings: () => settings, set};   // for tests and the console
+  for (const [i, t] of (contract.tours || []).entries()) $('tour-pick').add(new Option(t.name, i));
+  window.viewer = {THREE, scene, camera, root, orbit, settings: () => settings, set, walkPace: () => holdPace(held), moving: () => !!(fly || glide || touring),   // for tests and the console
+    tours: contract.tours,
+    // one deterministic frame of a tour, as a JPEG data URL: what tools/record_tour.py captures
+    async tourFrame(i, t) { renderer.setAnimationLoop(null); await tourFrame(contract.tours[i], t); renderer.render(scene, camera); return renderer.domElement.toDataURL('image/jpeg', 0.92); }};
+  if (q.has('tour')) playTour(contract.tours.find(t => t.name.toLowerCase().replace(/\W+/g, '-') === q.get('tour')) || contract.tours[0]);
   $('loading').remove();
   document.body.classList.add('ready');
 })();

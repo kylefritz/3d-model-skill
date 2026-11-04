@@ -6,6 +6,9 @@
 #            that needs a different opening) is built once per value at build time.
 #   range  - moves a named node in the browser (a sliding panel), by a distance
 #            the generator wrote into the contract.
+#   steps  - a slider over a few values that change shape (porch depth, roof pitch,
+#            guard height). Each step is a pre-built GLB, like a swap, so the
+#            drawings and cut list can be drawn for the same step.
 #
 # Paint chips are Sherwin-Williams colors; hex values are SW's own published RGB.
 # A screen is not a paint chip: get a real sample before you buy a gallon.
@@ -57,6 +60,7 @@ sections:
         materials: [paint.trim, window.frame]
 
   - name: Front porch
+    drawings: "drawings/porch-{rail_height}-{porch_depth}/"
     fields:
       - id: porch_floor
         kind: color
@@ -76,6 +80,27 @@ sections:
         default: haint
         palette: [haint, sw7005, sw6204]
         materials: [porch.ceiling]
+      - id: porch_depth
+        kind: steps
+        label: Porch depth
+        default: "8"
+        values: [6, 7, 8]
+        unit: "'"
+        note: Changes the posts, the side guards and the stair landing; the sidewalk stays put.
+      - id: porch_pitch
+        kind: steps
+        label: Roof pitch
+        default: "2"
+        values: [1, 2, 3, 4]
+        unit: " in 12"
+        note: Low-slope metal wants at least 1/2 in 12; standing seam is happy from 3 in 12.
+      - id: rail_height
+        kind: steps
+        label: Guard height
+        default: "36"
+        values: [36, 38, 40, 42]
+        unit: '"'
+        note: 36" is the residential minimum (IRC R312); 42" is the commercial one.
       - id: front_door
         kind: color
         label: Front door
@@ -84,6 +109,7 @@ sections:
         materials: [door.front]
 
   - name: Rear door
+    drawings: "drawings/door-{door}/"
     fields:
       - id: door
         kind: swap
@@ -111,6 +137,7 @@ slots:
   cladding: "options/cladding-{cladding}.glb"
   rear: "options/rear-{door}-{cladding}.glb"
   door: "options/door-{door}.glb"
+  porch: "options/porch-{porch_pitch}-{rail_height}-{porch_depth}.glb"
 
 # Natural brick ignores the body paint; everything else takes it.
 brick_color: {paint_toggle: paint_brick, paint_field: body}
@@ -122,3 +149,29 @@ views:
   - {name: Back yard, eye: [40, 960, 90], target: [126, 552, 60]}
   - {name: Rear door, eye: [126, 690, 64], target: [126, 552, 46]}
   - {name: Inside, eye: [126, 430, 64], target: [126, 560, 44]}
+
+# Tours: camera keyframes in model inches, at seconds. `set` applies settings at a key
+# (a range slider eases between keys). The viewer plays them; tools/record_tour.py
+# renders them frame by frame to video. Keep the path out of the walls: check a new
+# one with `record_tour.py --every 1` and look at the frames.
+tours:
+  - name: Front to back
+    keys:
+      - {at: 0, eye: [150, -560, 70], target: [96, 0, 110], set: {door_open: 0}}
+      - {at: 4, eye: [120, -270, 62], target: [80, 0, 70]}
+      - {at: 7.5, eye: [160, -170, 58], target: [40, -40, 50]}
+      - {at: 11, eye: [-120, -420, 330], target: [96, 150, 150]}
+      - {at: 14.5, eye: [-330, 300, 620], target: [96, 330, 140]}
+      - {at: 18, eye: [-200, 1080, 260], target: [110, 560, 90]}
+      - {at: 20.5, eye: [50, 1010, 110], target: [126, 552, 60]}
+      - {at: 23, eye: [143, 720, 64], target: [143, 552, 50], set: {door_open: 0}}
+      - {at: 25.5, eye: [143, 620, 64], target: [143, 500, 58], set: {door_open: 100}}
+      - {at: 29, eye: [143, 450, 64], target: [120, 150, 62]}
+  - name: Porch options
+    keys:
+      - {at: 0, eye: [260, -300, 170], target: [96, -40, 70], set: {porch_depth: 8, porch_pitch: 1, rail_height: 36}}
+      - {at: 3, eye: [180, -340, 164], target: [96, -40, 66], set: {porch_pitch: 2}}
+      - {at: 5, eye: [100, -350, 162], target: [96, -40, 66], set: {porch_pitch: 3}}
+      - {at: 7, eye: [10, -330, 164], target: [96, -40, 66], set: {porch_pitch: 4, rail_height: 42}}
+      - {at: 9.5, eye: [-60, -260, 170], target: [96, -40, 66], set: {porch_depth: 6}}
+      - {at: 12, eye: [-40, -180, 180], target: [96, -30, 60], set: {porch_depth: 7, rail_height: 38}}

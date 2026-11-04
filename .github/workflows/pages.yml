@@ -24,7 +24,14 @@ jobs:
       - uses: actions/checkout@v7
       - uses: astral-sh/setup-uv@v10.3.3   # no floating major tag; pin the release
       - run: uv run model/build.py
+      - run: uv run model/drawings.py
       - run: uv run model/check.py
+      # drawings readable on a phone, then printed to PDF from the same pages
+      - run: uvx --from playwright playwright install --with-deps chromium
+      - run: |
+          python3 -m http.server 8000 --directory site &
+          sleep 1
+          uv run tools/check_drawings.py http://localhost:8000/drawings/ --pdf
       - uses: actions/configure-pages@v6
         if: github.ref == 'refs/heads/main'
       - uses: actions/upload-pages-artifact@v5

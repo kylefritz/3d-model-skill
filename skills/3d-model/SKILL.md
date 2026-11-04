@@ -25,7 +25,23 @@ Ask which phone they have. LiDAR means an iPhone Pro (12 Pro or later) or an iPa
 Recommend Scaniverse (free, on-device, exports GLB mesh and PLY points from one
 capture). Give them `docs/capture.md`'s walking rules: short overlapping scans under 5
 minutes, slow, about 5 m range, exteriors as a loop in both directions, glass and blinds
-lie, tape one dimension per scan. They export **both** GLB and PLY.
+lie, tape one dimension per scan.
+
+**Getting the scans off the phone.** Walk them through it one step at a time and wait for
+them to confirm each step. Every scan goes out twice, mesh first and then points:
+
+1. In Scaniverse, tap the scan to open it.
+2. Tap **Share**.
+3. Tap **Export Model**.
+4. Pick **GLB** (color images). Send it to the laptop: **AirDrop** is easiest on a Mac;
+   otherwise use Files / iCloud Drive or email.
+5. Back on the same scan: **Share → Export Model → PLY** (point cloud). Send that too.
+6. Repeat for each scan.
+
+When the files land (AirDrop puts them in `~/Downloads`), rename both files of a pair to
+the same date and place (`2026-09-11-rear-yard.glb` and `.ply`) and move them into
+`captures/`. Check that every GLB has a PLY with the same name. A missing half means a
+re-export, not a re-scan.
 
 Without LiDAR: photos plus COLMAP or VGGT get shape but not trustworthy scale. Tape more.
 

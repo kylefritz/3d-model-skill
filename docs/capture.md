@@ -51,6 +51,17 @@ and [on glass and mirrors](https://poly.cam/blog/how-to-handle-reflective-glass-
 Export the **GLB** (photo-textured mesh) *and* the **PLY** (points) from the same scan.
 They're the same capture in the same coordinates, so one registration fits both.
 
+In Scaniverse, for each scan:
+
+1. Tap the scan to open it.
+2. Tap **Share**, then **Export Model**.
+3. Pick **GLB** (color images) and send it to your laptop. AirDrop is quickest to a Mac;
+   Files / iCloud Drive works for anything else.
+4. Do it again on the same scan: **Share → Export Model → PLY** (point cloud), and send it.
+
+AirDrop drops them in `~/Downloads`. Rename each pair to match
+(`2026-09-11-rear-yard.glb`, `2026-09-11-rear-yard.ply`) and move them into `captures/`.
+
 - Read the **texture** to tell what a thing is: brick or siding, old joist or new
   pressure-treated lumber, wall or the blinds in front of it.
 - Read the **points** for where it is.

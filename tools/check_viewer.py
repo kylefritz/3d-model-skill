@@ -77,6 +77,34 @@ def main(base):
         check(r.ok and "porch-42-6.pdf" in r.text(), "that drawing set exists")
         page.click("#panel-toggle")
 
+        # existing vs proposed: existing shows the house as measured, and your design comes back
+        page.evaluate("viewer.setState('existing')")
+        page.wait_for_timeout(1200)
+        slots = page.evaluate("viewer.slots()")
+        check(slots["door"].endswith("door-none.glb") and "porch-1-36-8" in slots["porch"], f"existing shows the measured house ({slots['door']}, {slots['porch']})")
+        check("state=existing" in page.url and "door=marvin" in page.url, "the link keeps your design while showing existing")
+        page.evaluate("viewer.setState('proposed')")
+        page.wait_for_timeout(1200)
+        check(page.evaluate("viewer.settings().door") == "marvin", "back to proposed restores your door")
+
+        # light, plan cut, evidence
+        page.evaluate("viewer.display.light = 'dusk'; viewer.applyLight()")
+        check(page.evaluate("viewer.scene.children.some(o => o.isGroup && o.visible && o.children.some(c => c.isPointLight && c.intensity > 0))"), "dusk turns the lights on")
+        page.evaluate("viewer.display.light = 'day'; viewer.applyLight()")
+        page.select_option("#view", str(page.evaluate("viewer.tours && document.querySelector('#view').options.length") - 2))
+        page.wait_for_timeout(500)
+        check(page.evaluate("viewer.renderer.clippingPlanes.length") == 1, "a plan view clips above the cut")
+        page.select_option("#view", "2")
+        page.wait_for_timeout(300)
+        check(page.evaluate("viewer.renderer.clippingPlanes.length") == 0, "leaving it removes the cut")
+        page.evaluate("viewer.display.scan = true")
+        page.evaluate("viewer.set('body', 'sw2802')")
+        page.wait_for_timeout(2500)
+        check(page.evaluate("viewer.scene.children.some(o => o.visible && (() => { let p = false; o.traverse(c => { if (c.isPoints) p = true; }); return p; })())"), "the scan points layer loads")
+        page.evaluate("viewer.display.scan = false")
+        page.wait_for_timeout(400)
+        check("scan=1" in page.url, "the link remembers the evidence layer")
+
         # a tour moves the camera on its own, then gives orbit back
         page.wait_for_timeout(300)
         c0 = cam(page)
@@ -100,9 +128,11 @@ def main(base):
 
         # double-tap the ground in the lower middle of the screen, while there's yard ahead
         before = cam(page)
-        for _ in range(2):
-            page.touchscreen.tap(195, 560)
-            page.wait_for_timeout(120)
+        # both taps in one script call: in a slow headless browser, two separate taps can land
+        # more than the 350 ms double-tap window apart once frames get heavy (shadows)
+        page.evaluate("""() => { const c = viewer.renderer.domElement;
+          for (let i = 0; i < 2; i++) for (const type of ['pointerdown', 'pointerup'])
+            c.dispatchEvent(new PointerEvent(type, {clientX: 195, clientY: 560, pointerId: 7, pointerType: 'touch', bubbles: true})); }""")
         page.wait_for_function("!viewer.moving()", timeout=20000)
         moved = dist(before, cam(page))
         check(moved > 0.3, f"double-tap goes there ({moved:.2f} m)")

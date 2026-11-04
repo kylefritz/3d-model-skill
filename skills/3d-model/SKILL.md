@@ -18,7 +18,7 @@ capture (LiDAR + tape) -> register -> model/house.yaml (numbers + sources)
   -> model/check.py -> publish (GitHub Pages or Cloudflare)
 ```
 
-Read the doc for the step you're on: `docs/capture.md`, `docs/model.md`,
+Read the doc for the step you're on: `docs/capture.md`, `docs/model.md`, `docs/viewer.md`,
 `docs/parameters.md`, `docs/drawings.md`, `docs/publish.md`.
 
 ## 1. Capture
@@ -56,6 +56,12 @@ deviation cloud. When the automatic coarse step fails, pick 3 matching points by
 and pass `--seed`. Record the residual with the transform and don't claim better.
 Run `make demo-scan` first if anyone doubts the tool.
 
+Then make the scan-vs-model sheets (`uv run tools/scan_sheets.py <registered.ply>`): plan
+cuts per floor and a long section, scan in black, model in red, 1' grid, with the
+median distance printed. Read every sheet. A mismatch is a measurement to fix or furniture
+to ignore, and the sheet can't tell which. Ship the registered points as the viewer's
+scan layer (`site/scan/points.glb`) so anyone can ghost the model and check.
+
 ## 3. Model
 
 Numbers go in `model/house.yaml` in feet and inches, each group with a `source`
@@ -67,6 +73,16 @@ Geometry comes from generators in `model/build.py`, written in wall coordinates
 Products come from the maker's sheet: unit size, rough opening, jamb depth, colors,
 and the URL go in YAML with `source: spec`. Mark anything the sheet doesn't publish as
 an estimate. Maker colors have names, not hex values. Approximate the hex and say so.
+
+Also set, before anyone looks at it:
+
+- `existing:` in `options.yaml`: the house as measured. The viewer's Existing / Proposed
+  switch shows it without losing the design.
+- `site:` in `house.yaml`: `anchor` lat/long, `y_bearing` (compass bearing of +Y) and
+  `lot_depth`. They drive the real sun, the compass and the lot lines. Take the bearing
+  from a map and check it against a dated photo's shadows.
+- `lights:` for dusk (porch ceiling, sconces, a lamp per room) and `section` views (a cut
+  height in inches) for floor plans.
 
 ## 4. Parameters
 
@@ -96,7 +112,9 @@ should rarely need a change.
 ## 5. Check and look
 
 `make check` catches sources, door fit, code basics (riser 7 3/4" max, tread 10" min,
-baluster gap under 4", guard 36"), missing option files and the phone weight budget.
+baluster gap under 4", guard 36"), missing option files, the phone weight budget, a stale
+build (the `source_sha256` fingerprint), drawings that disagree with the GLBs, and model
+materials missing from a drawing set's coverage table.
 Then look: `make serve` and `make shots` (Playwright, desktop and phone). Read every
 screenshot before showing anyone. Look for z-fighting stripes, black faces, clipped
 views, and a panel covering the subject. After three rounds on one surface, call
@@ -123,6 +141,11 @@ both places.
 5. Screenshot every sheet and read it. A passing check doesn't make a sheet clear.
 6. Anything structural gets "by engineer" and an open item. The sheets say "not for
    construction".
+7. Fill the set's `coverage:` table: every material in its GLBs is either `buy` or says
+   whose it is. A buy list with silent gaps looks complete, and that's worse than having none.
+8. Where it can, `check.py` cuts the GLB and compares it with the drawing (the hole in the
+   brick against the masonry opening, baluster sections against the cut list). Add a cut
+   check like that for each new kind of sheet.
 
 ## 7. Publish: ask which
 
@@ -137,6 +160,10 @@ Ask: **"GitHub Pages or Cloudflare?"** Then follow `docs/publish.md`.
 
 Publishing is outward-facing. Confirm before the first deploy, and strip private notes
 (addresses, correspondence, security details) from anything that goes into a GLB.
+
+After a deploy, prove it: `uv run tools/verify_live.py <url>` compares every file with
+the live site, byte for byte, plus the fingerprint. The Pages workflow's `verify` job does
+it against the exact artifact it deployed. "CI is green" isn't proof the site is right.
 
 ## Viewer controls
 

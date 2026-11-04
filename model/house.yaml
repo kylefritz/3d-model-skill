@@ -52,11 +52,16 @@ porch:
   baluster: 1 1/2"
   baluster_gap: 3 7/8"     # under the 4" sphere rule
   ceiling: 8' 8"           # above porch floor
-  roof_pitch: 1 1/2        # inches of fall per 12" of run, toward the street
+  roof_pitch: 1            # inches of fall per 12" of run, toward the street (existing, by eye)
   stair: {x: 1', width: 4', risers: 3, tread: 11"}
 
 site:
   source: estimate
+  # Georeference: where the origin is on Earth and which way the model faces. Sets the
+  # compass, the sun and the lot. The example's anchor is NYC City Hall, not a real house.
+  anchor: {lat: 40.7128, lon: -74.0060}
+  y_bearing: 300           # compass bearing of +Y (front wall toward the yard), degrees from north
+  lot_depth: 87'           # front lot line to the back fence; the lot is party line to party line
   front_line: -11'        # where the public sidewalk starts, from the front wall
   sidewalk: 10'
   street: 30'

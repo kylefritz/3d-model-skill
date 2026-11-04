@@ -132,6 +132,55 @@ if takeoff_path.exists():
             for k in ("unit", "ro", "mo"):
                 check(frac_in(t[k][1] - t[k][0]) in page_html, f"{slug}: the {k} width isn't on the drawings")
 
+# the site was built from today's sources
+from fingerprint import fingerprint  # noqa: E402
+check(contract.get("source_sha256") == fingerprint(), "controls.json is from older sources: run model/build.py")
+
+# drawings against the GLB, and the GLB against the coverage table
+import numpy as np  # noqa: E402
+import trimesh  # noqa: E402
+
+
+def glb_meshes(rel):
+    sc = trimesh.load(build.SITE / rel, force="scene")
+    for node in sc.graph.nodes_geometry:
+        T, name = sc.graph[node]
+        yield name, sc.geometry[name].copy().apply_transform(T)
+
+
+if takeoff_path.exists():
+    IN = build.IN
+    for slug, t in takeoff.items():
+        mats = {name.split(".", 2)[-1] if name.startswith("door.operable.") else name for rel in t["glbs"] for name, _ in glb_meshes(rel)}
+        for m in sorted(mats - set(t["coverage"])):
+            check(False, f"{slug}: the model has {m} but drawings.yaml coverage doesn't say where it goes")
+        if slug.startswith("door-"):
+            # cut the rear wall's brick 3' up; the gap between the two pieces is the masonry opening
+            brick = trimesh.util.concatenate([g for n, g in glb_meshes(t["glbs"][1]) if n == "cladding.brick"])
+            segs = trimesh.intersections.mesh_plane(brick, [0, 1, 0], [0, 36 * IN, 0])
+            face = segs[np.abs(segs[:, :, 2] + p["wy1"] * IN).max(1) < 0.01]          # on the wall's outside face
+            runs = sorted((min(sg[:, 0]) / IN, max(sg[:, 0]) / IN) for sg in face)
+            merged = []
+            for a0, a1 in runs:   # merge touching pieces into runs of brick
+                if merged and a0 <= merged[-1][1] + 0.01:
+                    merged[-1][1] = max(merged[-1][1], a1)
+                else:
+                    merged.append([a0, a1])
+            gaps = [round(b[0] - a[1], 3) for a, b in zip(merged, merged[1:])]   # holes between runs
+            drawn = t["mo"][1] - t["mo"][0]
+            check(len(gaps) == 1 and abs(gaps[0] - drawn) < 0.13, f"{slug}: masonry opening in the GLB is {gaps}\", drawings say {drawn}\"")
+        if "balusters_cut" in t:
+            # cut the guard 18" above the porch floor; every baluster is a 1 1/2" square there
+            trim = trimesh.util.concatenate([g for n, g in glb_meshes(t["glbs"][0]) if n == "porch.trim"])
+            segs = trimesh.intersections.mesh_plane(trim, [0, 1, 0], [0, (18 - spec["porch"]["floor_below_threshold"]) * IN, 0])
+            # a cut splits each side at the triangle seams, so count by perimeter: at this height
+            # only posts (4 x 5 1/2") and balusters (4 x 1 1/2") are cut
+            perimeter = np.linalg.norm(segs[:, 0] - segs[:, 1], axis=1).sum() / IN
+            posts = len(spec["porch"]["posts_x"]) * 4 * spec["porch"]["post"]
+            in_glb = (perimeter - posts) / (4 * spec["porch"]["baluster"])
+            in_glb = int(round(in_glb)) if abs(in_glb - round(in_glb)) < 0.01 else in_glb
+            check(in_glb == t["balusters_cut"], f"{slug}: {in_glb} balusters in the GLB, {t['balusters_cut']} on the cut list")
+
 if problems:
     print("\n".join("FAIL " + x for x in problems))
     sys.exit(1)

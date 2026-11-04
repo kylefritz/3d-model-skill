@@ -79,6 +79,31 @@ of every 8' 2x2: 15 boards. The caps and bottom rails pack two runs per 12' boar
 - the door's unit, rough opening and masonry opening widths are printed on its sheets;
 - the lintel gets its bearing plus 4" of brick past it on each side.
 
+## Drawings against the model
+
+The takeoff checks prove the drawings agree with the layout functions. `check.py` also
+cuts the exported GLBs and checks they agree with the drawings:
+
+- each door's rear wall GLB is cut 3' up, and the hole in the brick must equal the
+  masonry opening on its sheets, to 1/8";
+- each porch GLB is cut 18" above the floor, and the number of 1 1/2" baluster sections
+  must equal the cut list.
+
+## Traceable takeoff
+
+A buy list that's missing things is worse than none, because it looks complete. Each set in
+`drawings.yaml` has a `coverage:` table: every material in that set's GLBs, and either
+`buy` or who it belongs to ("decking and treads not taken off yet", "by the roofer").
+The sheets print the non-`buy` rows under **Not on this list**. If the model grows a
+material the table doesn't mention, `make check` fails.
+
+```yaml
+coverage:
+  porch.trim: "buy: posts, caps, bottom rails, balusters. Not yet: beam, fascia, skirt, stair risers and stringers"
+  porch.floor: decking and treads not taken off yet
+  roof.metal: by the roofer
+```
+
 ## Readable, or it fails
 
 `tools/check_drawings.py` opens every set in Chromium and fails when two labels overlap,

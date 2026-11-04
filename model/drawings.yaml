@@ -1,29 +1,49 @@
-# Drawing register: one brief per drawing someone asked for. drawings.py takes each
+# Drawing register: one brief per drawing someone asked for. Quote list items: a comma
+# inside [a, b] starts a new item. drawings.py takes each
 # sheet's title from here and prints its confidence and open items on the sheet, so
 # nobody mistakes an estimate for a measurement. Add a brief before you add a sheet.
 
 door:
   title: Rear slider installation
   per: door            # one set per door option, so each set is drawn to its own spec sheet
+  # Traceable takeoff: every material in this set's GLBs says where it goes. `buy` means
+  # it's on the buy list; anything else is printed under "Not on this list" with the
+  # reason. check.py fails on a material that isn't here, so nothing silently drops.
+  coverage:
+    door.frame: buy                         # the door unit
+    glass: buy
+    hardware: buy
+    paint.trim: buy                         # the PT buck, cased
+    concrete: buy                           # the lintel and sills
+    cladding.brick: existing brick, cut and toothed in by the mason
+    interior.wall: existing plaster, patched by the plasterer
+    window.frame: the bedroom window above stays
+    paint.body: siding around the opening, by the siding sub (cladding options only)
   sheets:
     A1:
       title: Exterior elevation
       brief: The opening as the mason sees it from the yard. Masonry opening, buck, rough opening, unit, lintel and bearing, all dimensioned from the wall's ends.
       confidence: Door sizes from the maker's sheet. Wall length from the scan (about 1"). Lintel size is an estimate.
-      open: [Engineer to size both lintels; the wall carries the second floor.]
+      open: ["Engineer to size both lintels; the wall carries the second floor."]
     A2:
       title: Plan at the jamb
       brief: A horizontal cut 3' above the floor. How deep the door sits in the 12" wall, and what fills the space between the frame and the brick.
       confidence: Wall build-up from the scan and a tape at the existing window. Setback is a design choice.
-      open: [Confirm the inner wythes are solid brick, not a cavity, before ordering anchors.]
+      open: ["Confirm the inner wythes are solid brick, not a cavity, before ordering anchors."]
     A3:
       title: Head and sill
       brief: Vertical cuts through the top and bottom of the door. Lintels, buck head, the threshold and the step down to the landing.
       confidence: Threshold height from the maker's sheet. Landing height is an estimate.
-      open: [Sill pan product not chosen.]
+      open: ["Sill pan product not chosen."]
 
 porch:
   title: Front porch railing
+  coverage:
+    porch.trim: "buy: posts, caps, bottom rails, balusters. Not yet: beam, fascia, skirt, stair risers and stringers"
+    porch.floor: decking and treads not taken off yet
+    porch.ceiling: beadboard not taken off yet
+    roof.metal: by the roofer
+    concrete: the walk, by the mason
   sheets:
     P1:
       title: Railing elevation
@@ -34,4 +54,4 @@ porch:
       title: Porch plan
       brief: Where the posts and guard runs go, how long each run is, and how many balusters it takes.
       confidence: Porch depth from one tape check; the rest from photos (estimate).
-      open: [Tape the porch width at the front edge.]
+      open: ["Tape the porch width at the front edge."]

@@ -4,6 +4,7 @@
 import * as THREE from 'three';
 import {OrbitControls} from './vendor/OrbitControls.js';
 import {GLTFLoader} from './vendor/GLTFLoader.js';
+import {GLTFExporter} from './vendor/GLTFExporter.js';
 
 const $ = id => document.getElementById(id);
 
@@ -16,10 +17,19 @@ renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
 renderer.setSize(innerWidth, innerHeight);
 renderer.outputColorSpace = THREE.SRGBColorSpace;
 $('viewport').append(renderer.domElement);
-scene.add(new THREE.HemisphereLight(0xffffff, 0xb9b1a3, 2.1));
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+const hemi = new THREE.HemisphereLight(0xffffff, 0xb9b1a3, 2.1);
+scene.add(hemi);
 const sun = new THREE.DirectionalLight(0xfff3e2, 2.4);
 sun.position.set(-14, 24, 18);
-scene.add(sun);
+sun.castShadow = true;
+sun.shadow.mapSize.set(2048, 2048);
+Object.assign(sun.shadow.camera, {left: -22, right: 22, top: 22, bottom: -22, near: 1, far: 120});
+sun.shadow.camera.updateProjectionMatrix();   // without this it keeps the default 10 m box and the porch gets no shadows
+sun.shadow.bias = -0.0004;
+sun.shadow.normalBias = 0.02;
+scene.add(sun, sun.target);
 const fill = new THREE.DirectionalLight(0xffffff, 0.6);
 fill.position.set(12, 8, -16);
 scene.add(fill);
@@ -141,6 +151,123 @@ function brickUV(geometry) {
   geometry.setAttribute('uv', new THREE.BufferAttribute(uv, 2));
 }
 
+// ---------------------------------------------------------------- light, sun and site
+// Not parameters of the house, so they aren't in the contract's sections: how you look at it.
+// Day puts the sun where it really is (lat/long, the model's bearing, month and hour);
+// dusk turns on the contract's lights and lights the windows from inside.
+const display = {light: 'day', hour: 10, month: 6,   // 10 a.m.: this example faces ESE, so the front is in sun
+  exposure: 0, scan: false, ghost: false, lot: true};
+const LIGHTS = {
+  day: {sky: '#dfe6ea', hemi: 2.1, sun: 2.4, fill: 0.6, glow: 0, lamps: 0, shadows: true},
+  overcast: {sky: '#d5d9dc', hemi: 2.9, sun: 0.5, fill: 0.9, glow: 0, lamps: 0, shadows: false},
+  dusk: {sky: '#27304a', hemi: 0.45, sun: 0.35, fill: 0.08, glow: 0.9, lamps: 1, shadows: false},
+};
+const lamps = new THREE.Group();
+scene.add(lamps);
+// Solar position, good to a degree or so: declination from the day of year, hour angle from
+// solar time (the hour slider is solar time, not the clock: no time zones here).
+function sunDirection(lat, month, hour) {
+  const rad = Math.PI / 180, day = [15, 46, 74, 105, 135, 166, 196, 227, 258, 288, 319, 349][month - 1];
+  const dec = 23.44 * Math.sin(rad * 360 / 365 * (day - 81)) * rad, H = 15 * (hour - 12) * rad, phi = lat * rad;
+  const el = Math.asin(Math.sin(phi) * Math.sin(dec) + Math.cos(phi) * Math.cos(dec) * Math.cos(H));
+  const az = Math.atan2(Math.sin(H), Math.cos(H) * Math.sin(phi) - Math.tan(dec) * Math.cos(phi)) + Math.PI;  // from north, clockwise
+  return {el, az};
+}
+// Compass bearing -> viewer direction. Model +Y has bearing y_bearing and +X is 90 degrees
+// clockwise from it; the viewer is glTF Y-up, so model (x, y, z) is (x, z, -y).
+function bearingToWeb(az, el) {
+  const d = az - contract.site.y_bearing * Math.PI / 180;
+  return new THREE.Vector3(Math.sin(d) * Math.cos(el), Math.sin(el), -Math.cos(d) * Math.cos(el));
+}
+function applyLight() {
+  const L = LIGHTS[display.light], k = 2 ** display.exposure;
+  scene.background.set(L.sky);
+  hemi.intensity = L.hemi * k; fill.intensity = L.fill * k;
+  const center = new THREE.Vector3(2.4, 0, -6);
+  let dir;
+  if (display.light === 'day') {
+    const {el, az} = sunDirection(contract.site.anchor.lat, display.month, display.hour);
+    dir = bearingToWeb(az, Math.max(el, 0.02));
+    sun.intensity = (el > 0 ? L.sun * Math.min(1, el / 0.25 + 0.3) : 0.05) * k;
+    sun.color.set(el < 0.2 ? '#ffd2a0' : '#fff3e2');
+  } else {
+    dir = display.light === 'dusk' ? bearingToWeb(contract.site.y_bearing * Math.PI / 180 + 2, 0.05) : new THREE.Vector3(-0.4, 1, 0.5).normalize();
+    sun.intensity = L.sun * k;
+    sun.color.set(display.light === 'dusk' ? '#ff9a6a' : '#ffffff');
+  }
+  sun.position.copy(center).addScaledVector(dir, 50);
+  sun.target.position.copy(center);
+  sun.castShadow = L.shadows;
+  lamps.visible = L.lamps > 0;
+  for (const l of lamps.children) l.intensity = l.userData.power * L.lamps * k;
+  root.traverse(o => {
+    if (!o.isMesh) return;
+    const m = o.material;
+    if (m.name === 'glass') { m.emissive?.set('#ffcf8a'); m.emissiveIntensity = L.glow; }
+  });
+  updateCompass();
+}
+function buildLamps() {
+  for (const l of contract.lights || []) {
+    const p = new THREE.PointLight(l.color, 0, 9, 2);
+    p.position.set(...l.at);
+    p.userData.power = l.power * 0.06;
+    lamps.add(p);
+  }
+}
+// The lot, dashed on the ground, and a compass that turns with the camera.
+let lotLine = null;
+function buildLot() {
+  const g = contract.site.ground + 0.03, pts = contract.site.lot.map(([x, z]) => new THREE.Vector3(x, g, z));
+  lotLine = new THREE.LineLoop(new THREE.BufferGeometry().setFromPoints(pts), new THREE.LineDashedMaterial({color: '#c4561a', dashSize: 0.35, gapSize: 0.2}));
+  lotLine.computeLineDistances();
+  scene.add(lotLine);
+}
+function updateCompass() {
+  if (!contract) return;
+  const f = new THREE.Vector3();
+  camera.getWorldDirection(f);
+  // viewer (x, -z) is model (x, y); bearing of the view = y_bearing + angle of the view from +Y
+  const heading = contract.site.y_bearing + Math.atan2(f.x, -f.z) * 180 / Math.PI;
+  $('compass').style.setProperty('--north', `${-heading}deg`);
+}
+// The evidence layer: the registered scan as points, and the model ghosted to see through it.
+let scanPoints = null;
+async function applyEvidence() {
+  if (display.scan && !scanPoints && contract.scan) {
+    const g = await load(contract.scan.url);
+    scanPoints = g.clone(true);
+    scanPoints.traverse(o => { if (o.isPoints) o.material = new THREE.PointsMaterial({size: 0.025, vertexColors: true, sizeAttenuation: true}); });
+    scene.add(scanPoints);
+  }
+  if (scanPoints) scanPoints.visible = display.scan;
+  root.traverse(o => {
+    if (!o.isMesh || o.material.name === 'glass') return;
+    // transparent is baked into the shader (three compiles an opaque variant), so changing it needs a recompile
+    if (o.material.transparent !== display.ghost) o.material.needsUpdate = true;
+    o.material.transparent = display.ghost;
+    o.material.opacity = display.ghost ? 0.08 : 1;   // walls are several stacked faces, so keep each one faint
+    o.material.depthWrite = !display.ghost;
+  });
+  if (lotLine) lotLine.visible = display.lot;
+}
+
+// ---------------------------------------------------------------- existing and proposed
+// Existing is the house as measured (the contract's `existing`), shown over the proposed
+// settings without touching them. The panel locks; switch back and your design is there.
+let state = 'proposed', proposedSettings = null;
+const proposed = () => state === 'existing' ? proposedSettings : settings;
+async function setState(st) {
+  if (st === state) return;
+  if (st === 'existing') { proposedSettings = {...settings}; settings = fix({...settings, ...contract.existing}); }
+  else { settings = proposedSettings; proposedSettings = null; }
+  state = st;
+  document.body.dataset.state = st;
+  buildPanel();
+  syncURL();
+  await applySlots();
+}
+
 // ---------------------------------------------------------------- parameters, 2: swap
 // A slot's file name is a template over the settings. rear-{door}-{cladding}.glb reloads
 // when either changes; everything else stays put.
@@ -158,13 +285,16 @@ async function applySlots() {
     if (now && now.url !== slot?.url) return;           // a newer choice won the race
     if (now) root.remove(now.group);
     const group = model.clone(true);                     // clone: materials stay per-instance
-    group.traverse(o => { if (o.isMesh) o.material = [].concat(o.material).map(m => m.clone())[0]; });
+    group.traverse(o => { if (o.isMesh) { o.material = [].concat(o.material).map(m => m.clone())[0]; o.castShadow = o.receiveShadow = true; } });
     root.add(group);
     slots.set(id, {url, group});
   });
   await Promise.all(jobs);
   applyColors();
   applyRanges();
+  applyClip();
+  applyLight();
+  applyEvidence();
 }
 
 // ---------------------------------------------------------------- parameters, 3: range
@@ -197,6 +327,25 @@ function swatch(f, [key, name, hex]) {
 function buildPanel() {
   const body = $('panel-body');
   body.replaceChildren();
+  const st = document.createElement('div');
+  st.className = 'state seg';
+  for (const [k, label] of [['existing', 'Existing'], ['proposed', 'Proposed']]) {
+    const b = document.createElement('button');
+    b.textContent = label;
+    b.setAttribute('aria-pressed', state === k);
+    b.onclick = () => setState(k);
+    st.append(b);
+  }
+  body.append(st);
+  if (state === 'existing') {
+    const n = document.createElement('p');
+    n.className = 'note';
+    n.textContent = 'The house as measured. Switch to Proposed to change things; your design is kept.';
+    body.append(n);
+  }
+  const sections = document.createElement('div');
+  sections.className = state === 'existing' ? 'locked' : '';
+  body.append(sections);
   for (const s of contract.sections) {
     const fs = document.createElement('fieldset');
     const lg = document.createElement('legend');
@@ -267,9 +416,112 @@ function buildPanel() {
       }
       fs.append(row);
     }
-    body.append(fs);
+    sections.append(fs);
   }
+  body.append(...extraSections());
 }
+
+// Light, evidence and files: how you look at the house, not what it is.
+function extraSections() {
+  const out = [];
+  const section = name => { const fs = document.createElement('fieldset'); const lg = document.createElement('legend'); lg.textContent = name; fs.append(lg); out.push(fs); return fs; };
+  const row = (fs, label) => { const r = document.createElement('div'); r.className = 'row'; const l = document.createElement('label'); l.className = 'label'; l.innerHTML = label; r.append(l); fs.append(r); return r; };
+  const slider = (fs, label, key, min, max, step, show, after) => {
+    const r = row(fs, `${label} <span>${show(display[key])}</span>`), input = document.createElement('input');
+    Object.assign(input, {type: 'range', min, max, step, value: display[key]});
+    input.setAttribute('aria-label', label);
+    input.oninput = () => { display[key] = Number(input.value); r.querySelector('span').textContent = show(display[key]); (after || applyLight)(); syncURL(); };
+    r.append(input);
+  };
+  const check = (fs, label, key, after) => {
+    const r = row(fs, `<input type="checkbox" ${display[key] ? 'checked' : ''}> ${label}`);
+    r.querySelector('input').onchange = e => { display[key] = e.target.checked; after(); syncURL(); };
+    return r;
+  };
+
+  const light = section('Light');
+  const seg = document.createElement('div');
+  seg.className = 'seg';
+  for (const k of Object.keys(LIGHTS)) {
+    const b = document.createElement('button');
+    b.textContent = k[0].toUpperCase() + k.slice(1);
+    b.setAttribute('aria-pressed', display.light === k);
+    b.onclick = () => { display.light = k; applyLight(); buildPanel(); syncURL(); };
+    seg.append(b);
+  }
+  row(light, 'Preset').append(seg);
+  if (display.light === 'day') {
+    const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    slider(light, 'Sun, solar time', 'hour', 6, 20, 0.25, h => `${Math.floor(h)}:${String(Math.round(h % 1 * 60)).padStart(2, '0')}`);
+    slider(light, 'Month', 'month', 1, 12, 1, m => months[m - 1]);
+  }
+  slider(light, 'Exposure', 'exposure', -2, 2, 0.1, e => (e > 0 ? '+' : '') + e.toFixed(1));
+
+  const ev = section('Evidence & site');
+  if (contract.scan) {
+    const r = check(ev, 'Scan points', 'scan', applyEvidence);
+    const n = document.createElement('div'); n.className = 'note'; n.textContent = contract.scan.note; r.append(n);
+  }
+  check(ev, 'Ghost the model', 'ghost', applyEvidence);
+  const sheets = Object.assign(document.createElement('a'), {href: 'scan/sheets/', className: 'drawings', textContent: 'Scan vs model sheets ↗', target: '_blank'});
+  ev.append(sheets);
+  check(ev, 'Lot lines', 'lot', applyEvidence);
+
+  const files = section('Save & share');
+  const btn = (label, fn) => { const b = document.createElement('button'); b.className = 'wide'; b.textContent = label; b.onclick = fn; files.append(b); };
+  btn('Save choices (.json)', saveChoices);
+  const lab = document.createElement('label');
+  lab.className = 'wide filepick';
+  lab.innerHTML = 'Load choices <input type="file" accept="application/json">';
+  lab.querySelector('input').onchange = e => loadChoices(e.target.files[0]);
+  files.append(lab);
+  btn('Save this view (.png)', savePNG);
+  btn('Download this design (.glb)', saveGLB);
+  const keys = document.createElement('p');
+  keys.className = 'note';
+  keys.textContent = 'Keys: 1-9 jump to views, F for full screen, Esc to leave it.';
+  files.append(keys);
+  return out;
+}
+
+// ---------------------------------------------------------------- save and share
+function download(blob, name) {
+  const a = Object.assign(document.createElement('a'), {href: URL.createObjectURL(blob), download: name});
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+}
+function saveChoices() {
+  download(new Blob([JSON.stringify({choices: proposed(), display, view: views[selected].name}, null, 1)], {type: 'application/json'}), 'house-choices.json');
+}
+async function loadChoices(file) {
+  if (!file) return;
+  try {
+    const d = JSON.parse(await file.text());
+    if (state === 'existing') await setState('proposed');
+    Object.assign(settings, d.choices || {});
+    Object.assign(display, d.display || {});
+    fix(settings);
+    buildPanel();
+    await applySlots();
+    const i = views.findIndex(v => v.name === d.view);
+    if (i >= 0) showView(i);
+    toast('Choices loaded');
+  } catch { toast("That file isn't a choices file"); }
+}
+function savePNG() {
+  renderer.render(scene, camera);   // capture in the same task as the render: no preserveDrawingBuffer needed
+  renderer.domElement.toBlob(b => download(b, 'house-view.png'), 'image/png');
+}
+function saveGLB() {
+  // What's on screen: the shell plus the chosen slot files, with the chosen colors.
+  new GLTFExporter().parse(root, r => download(new Blob([r], {type: 'model/gltf-binary'}), 'house-design.glb'), () => toast('Export failed'), {binary: true});
+}
+addEventListener('keydown', e => {
+  if (/INPUT|SELECT|TEXTAREA/.test(e.target.tagName) || walking || e.metaKey || e.ctrlKey) return;
+  if (/^[1-9]$/.test(e.key) && views[Number(e.key) - 1]) showView(Number(e.key) - 1);
+  if (e.key === 'f' || e.key === 'F') document.body.classList.toggle('full');
+  if (e.key === 'Escape') document.body.classList.remove('full');
+});
 function note(f) {
   const div = document.createElement('div');
   div.className = 'note';
@@ -302,9 +554,20 @@ function showView(i, animate = true) {
   $('view').value = selected;
   const v = views[selected];
   if (walking) walk(false);
+  clip = v.section ?? null;
+  applyClip();
   fly = animate ? {fromPos: camera.position.clone(), fromTarget: orbit.target.clone(), toPos: new THREE.Vector3(...v.eye), toTarget: new THREE.Vector3(...v.target), t: 0} : null;
   if (!animate) { camera.position.set(...v.eye); orbit.target.set(...v.target); orbit.update(); }
   syncURL();
+}
+// Plan cuts: a view with `section` clips everything above that height and shows the cut
+// walls from inside (double-sided), so it reads as a floor plan from above.
+let clip = null;
+const clipPlane = new THREE.Plane(new THREE.Vector3(0, -1, 0), 0);
+function applyClip() {
+  if (clip != null) clipPlane.constant = clip;
+  renderer.clippingPlanes = clip != null ? [clipPlane] : [];
+  root.traverse(o => { if (o.isMesh) { o.material.side = clip != null ? THREE.DoubleSide : THREE.FrontSide; } });
 }
 $('prev-view').onclick = () => showView(selected - 1);
 $('next-view').onclick = () => showView(selected + 1);
@@ -312,10 +575,14 @@ $('view').onchange = e => showView(Number(e.target.value));
 
 function linkURL() {
   const p = new URLSearchParams();
+  const s = proposed();
   for (const f of fields.values()) {
-    const v = settings[f.id];
+    const v = s[f.id];
     if (v !== (f.default ?? optionKeys(f)[0])) p.set(f.id, f.kind === 'toggle' ? Number(v) : v);
   }
+  if (state === 'existing') p.set('state', 'existing');
+  const plain = {light: 'day', hour: 10, month: 6, exposure: 0, scan: false, ghost: false, lot: true};
+  for (const [k, v] of Object.entries(display)) if (v !== plain[k]) p.set(k, typeof v === 'boolean' ? Number(v) : v);
   p.set('view', views[selected].name.toLowerCase().replace(/\W+/g, '-'));
   return location.pathname + '?' + p;
 }
@@ -385,7 +652,7 @@ $('finish-walk').onclick = () => walk(false);
     stick[0] = x; stick[1] = y;
     knob.style.transform = `translate(${x * STICK_RADIUS}px,${-y * STICK_RADIUS}px)`;
   };
-  pad.onpointerdown = e => { pad.setPointerCapture(e.pointerId); move(e); };
+  pad.onpointerdown = e => { try { pad.setPointerCapture(e.pointerId); } catch {} move(e); };
   pad.onpointermove = e => { if (pad.hasPointerCapture(e.pointerId)) move(e); };
   pad.onpointerup = pad.onpointercancel = resetStick;
 }
@@ -394,7 +661,8 @@ const canvas = renderer.domElement, raycaster = new THREE.Raycaster(), pointers 
 let press = null, lastTap = null;
 const solid = h => {
   const m = [].concat(h.object.material)[0];
-  return h.object.isMesh && h.object.visible && !(m?.transparent && m.opacity < 0.9);  // glass doesn't stop a tap
+  return h.object.isMesh && h.object.visible && !(m?.transparent && m.opacity < 0.9)   // glass doesn't stop a tap
+    && (clip == null || h.point.y <= clip);                                              // nor does what a plan cut removed
 };
 function goTo(cx, cy) {
   const b = canvas.getBoundingClientRect();
@@ -412,7 +680,7 @@ function goTo(cx, cy) {
 canvas.addEventListener('pointerdown', e => {
   pointers.add(e.pointerId);
   press = pointers.size === 1 ? {x: e.clientX, y: e.clientY} : null;   // a pinch is not a tap
-  if (walking && !look) { look = {id: e.pointerId, x: e.clientX, y: e.clientY}; canvas.setPointerCapture(e.pointerId); }
+  if (walking && !look) { look = {id: e.pointerId, x: e.clientX, y: e.clientY}; try { canvas.setPointerCapture(e.pointerId); } catch {} }   // best-effort: the pointer can be gone already
 });
 canvas.addEventListener('pointermove', e => {
   if (!walking || !look || e.pointerId !== look.id) return;
@@ -443,7 +711,7 @@ addEventListener('keydown', e => {
 addEventListener('keyup', e => { jog = e.shiftKey; keys.delete(moveKeys[e.key.toLowerCase()]); });
 addEventListener('blur', () => { keys.clear(); jog = false; resetStick(); });   // a key can stick down across an alt-tab
 for (const b of document.querySelectorAll('[data-move]')) {
-  b.onpointerdown = e => { keys.add(b.dataset.move); b.setPointerCapture(e.pointerId); };
+  b.onpointerdown = e => { keys.add(b.dataset.move); try { b.setPointerCapture(e.pointerId); } catch {} };
   b.onpointerup = b.onpointercancel = () => keys.delete(b.dataset.move);
 }
 
@@ -498,6 +766,7 @@ async function tourFrame(tour, t, live = false) {
 }
 function playTour(tour) {
   if (walking) walk(false);
+  if (tour && state === 'existing') setState('proposed');
   touring = tour ? {tour, start: performance.now(), busy: false} : null;
   $('tour').textContent = touring ? 'Stop' : 'Tour';
   orbit.enabled = !touring;
@@ -545,6 +814,7 @@ renderer.setAnimationLoop(time => {
     }
     orbit.update();
   }
+  updateCompass();
   renderer.render(scene, camera);
 });
 
@@ -558,13 +828,20 @@ renderer.setAnimationLoop(time => {
   settings = defaults();
   for (const f of fields.values()) if (q.has(f.id)) settings[f.id] = f.kind === 'range' ? Number(q.get(f.id)) : q.get(f.id);
   fix(settings);
+  for (const k of Object.keys(display)) if (q.has(k)) display[k] = typeof display[k] === 'boolean' ? q.get(k) === '1' : typeof display[k] === 'number' ? Number(q.get(k)) : q.get(k);
+  if (!LIGHTS[display.light]) display.light = 'day';
+  buildLamps();
+  buildLot();
+  if (q.get('state') === 'existing') { proposedSettings = {...settings}; settings = fix({...settings, ...contract.existing}); state = 'existing'; document.body.dataset.state = 'existing'; }
   buildPanel();
-  root.add((await load('model/house.glb')).clone(true));
+  const shell = (await load('model/house.glb')).clone(true);
+  shell.traverse(o => { if (o.isMesh) o.castShadow = o.receiveShadow = true; });
+  root.add(shell);
   await applySlots();
   const vi = views.findIndex(v => v.name.toLowerCase().replace(/\W+/g, '-') === q.get('view'));
   showView(vi < 0 ? 0 : vi, false);
   for (const [i, t] of (contract.tours || []).entries()) $('tour-pick').add(new Option(t.name, i));
-  window.viewer = {THREE, scene, camera, root, orbit, settings: () => settings, set, walkPace: () => holdPace(held), moving: () => !!(fly || glide || touring),   // for tests and the console
+  window.viewer = {THREE, scene, camera, renderer, sun, root, orbit, settings: () => settings, set, setState, state: () => state, display, applyLight, slots: () => Object.fromEntries([...slots].map(([k, v]) => [k, v.url])), walkPace: () => holdPace(held), touch: () => ({pointers: pointers.size, walking, glide: !!glide}), moving: () => !!(fly || glide || touring),   // for tests and the console
     tours: contract.tours,
     // one deterministic frame of a tour, as a JPEG data URL: what tools/record_tour.py captures
     async tourFrame(i, t) { renderer.setAnimationLoop(null); await tourFrame(contract.tours[i], t); renderer.render(scene, camera); return renderer.domElement.toDataURL('image/jpeg', 0.92); }};

@@ -26,6 +26,7 @@ jobs:
       - run: uv run model/build.py
       - run: uv run model/drawings.py
       - run: uv run model/check.py
+      - run: uv run tools/scan_sheets.py --out site/scan/sheets
       # drawings readable on a phone, then printed to PDF from the same pages
       - run: uvx --from playwright playwright install --with-deps chromium
       - run: |
@@ -43,9 +44,24 @@ jobs:
     if: github.ref == 'refs/heads/main'
     needs: build
     runs-on: ubuntu-latest
+    outputs:
+      page_url: ${{ steps.deployment.outputs.page_url }}
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
       - id: deployment
         uses: actions/deploy-pages@v5
+
+  # What we deployed is what's served, byte for byte, and it carries today's fingerprint.
+  verify:
+    needs: deploy
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/download-artifact@v8
+        with:
+          name: github-pages
+          path: artifact
+      - run: mkdir deployed && tar -xf artifact/artifact.tar -C deployed
+      - run: python3 tools/verify_live.py "${{ needs.deploy.outputs.page_url }}" deployed

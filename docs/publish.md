@@ -69,6 +69,22 @@ environment. Keep the token out of git (direnv and an ignored `.envrc` work well
 Docs: [static assets](https://developers.cloudflare.com/workers/static-assets/),
 [custom domains](https://developers.cloudflare.com/workers/configuration/routing/custom-domains/).
 
+## Is the live site what you built?
+
+Two checks close the loop after a deploy:
+
+- **Fingerprint.** `controls.json` carries `source_sha256`: a hash of `model/*.yaml`,
+  `build.py` and `drawings.py`. `make check` fails if it doesn't match today's sources, so
+  you can't publish a stale export by accident.
+- **Byte for byte.** `tools/verify_live.py` fetches every file of the deployed tree from
+  the live URL (cache-busted, retrying while the CDN catches up) and compares hashes.
+  The workflow's `verify` job runs it against the exact artifact it deployed.
+
+```
+$ uv run tools/verify_live.py https://you.github.io/3d-model-skill/
+ok   1,412 files live and identical; sources 3f1c09a2b7e4
+```
+
 ## Before you publish a real house
 
 - **Strip private notes.** Correspondence, addresses, lock models, alarm panels: none of

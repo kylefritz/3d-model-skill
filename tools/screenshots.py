@@ -27,6 +27,11 @@ SHOTS = {
     "inside": ("door=pella&door_open=80&view=inside", "desktop"),
     "phone-street": ("cladding=lap&body=sw2802&view=street", "phone"),
     "phone-panel": ("cladding=batten&body=sw6244&view=front-porch&panel=1", "phone"),
+    "street-dusk": ("light=dusk&view=street", "desktop"),
+    "plan-first-floor": ("view=first-floor-plan", "desktop"),
+    "existing-rear": ("state=existing&view=back-yard", "desktop"),
+    "scan-ghost": ("scan=1&ghost=1&view=back-yard", "desktop"),
+    "porch-shadows": ("hour=9.5&month=12&view=front-porch", "desktop"),
     "porch-sliders": ("porch_depth=6&porch_pitch=4&rail_height=42&porch_trim=sw6258&view=front-porch&scroll=porch", "desktop"),
 }
 DRAWINGS = {

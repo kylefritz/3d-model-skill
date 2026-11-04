@@ -109,3 +109,17 @@ fieldset a.drawings { display: inline-block; font-size: 12px; color: var(--accen
   body.walking #walk-pad { bottom: calc(max(12px, env(safe-area-inset-bottom)) + 56px); }
 }
 @media (prefers-reduced-motion: reduce) { #panel { transition: none; } }
+
+/* ---- existing / proposed, extras */
+.state { margin: 12px 0 4px; }
+.state button { flex: 1; }
+.locked { opacity: .5; pointer-events: none; }
+body[data-state="existing"] #title span::after { content: " · existing"; color: #c4561a; }
+button.wide, label.wide { display: block; width: 100%; text-align: left; padding: 8px 10px; margin: 4px 0; border-radius: 8px; background: #e8e9e4; font-size: 13px; cursor: pointer; }
+label.filepick input { display: block; margin-top: 4px; font-size: 12px; }
+#compass { position: fixed; top: calc(max(12px, env(safe-area-inset-top)) + 56px); left: max(12px, env(safe-area-inset-left));
+  width: 40px; height: 40px; border-radius: 50%; background: var(--surface); box-shadow: 0 1px 6px rgba(0,0,0,.1);
+  display: grid; place-items: center; transform: rotate(var(--north, 0deg)); }
+#compass i { font: 700 12px/1 system-ui, sans-serif; font-style: normal; color: #c4561a; transform: translateY(-9px); }
+#compass::after { content: ""; position: absolute; width: 2px; height: 14px; background: #c4561a; top: 5px; border-radius: 1px; opacity: .5; }
+body.full #panel, body.full #dock, body.full #title, body.full #compass { display: none; }

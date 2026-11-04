@@ -98,6 +98,23 @@ $ make demo-scan
  "demo_rotation_error_deg": 0.015
 ```
 
+Then look at it against the model, cut in the same places:
+
+```
+$ uv run tools/scan_sheets.py out/rear-deviation.ply
+out/scan-sheets/plan-first-floor-plan.png
+out/scan-sheets/plan-second-floor-plan.png
+out/scan-sheets/section-long.png
+```
+
+![Scan vs model, long section](img/scan-sheet-section.png)
+
+Black is scan points in a band around each cut, red is the model cut at the same height,
+on a 1' grid, with the median distance printed underneath. A wall the scan sees 3" from where
+the model puts it is either a measurement to fix or furniture to ignore. The sheets don't
+know which; you do. The viewer can also show the scan as a point layer over a ghosted
+model (Evidence & site).
+
 Lessons from real scans:
 
 - **Rules break; seeds don't.** Finding features by rule ("the biggest vertical plane is

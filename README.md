@@ -23,6 +23,9 @@ LiDAR scans to plan a back porch. Every dimension says where it came from
 - **Rear sliding door:** Andersen 200 Series, Marvin Elevate, Pella Lifestyle, each at
   its published unit size, rough opening and jamb depth, in its maker's colors. Slide
   it open.
+- **Existing vs proposed**, **day/overcast/dusk** with the real sun for any month and
+  hour (shadows included), **floor-plan cuts**, the **scan** as a point layer over a
+  ghosted model, lot lines, a compass, and save/load/PNG/GLB export
 - **Construction drawings** for whatever's on screen: the slider install (elevation, jamb
   plan, head and sill) for each door, and the porch railing for each guard height and
   depth, with a cut list and a buy list. Web pages you can read on a phone, and PDFs.
@@ -41,6 +44,12 @@ left thumb (hold it to speed up, double-tap anywhere to go there).
 <img src="docs/img/phone-street.png" width="260"> <img src="docs/img/phone-panel.png" width="260">
 
 ![Porch sliders: 6' deep, 4 in 12, 42" guard](docs/img/porch-sliders.png)
+
+| Dusk | First floor plan cut |
+| --- | --- |
+| ![](docs/img/street-dusk.png) | ![](docs/img/plan-first-floor.png) |
+| **Existing (as measured)** | **Scan points, model ghosted** |
+| ![](docs/img/existing-rear.png) | ![](docs/img/scan-ghost.png) |
 
 | Slider install, Andersen 200 | Railing, 36" guard |
 | --- | --- |
@@ -62,6 +71,8 @@ $ make test-viewer      # drives it on an emulated iPhone
 $ make check-drawings   # every label readable on a phone, then PDFs
 $ make tours            # records the tours to docs/img
 $ make demo-scan        # registers a fake LiDAR scan to the model
+$ uv run tools/scan_sheets.py   # scan vs model plan cuts and a long section
+$ uv run tools/verify_live.py https://you.github.io/3d-model-skill/   # live = built, byte for byte
 ```
 
 ## How it works
@@ -76,8 +87,10 @@ $ make demo-scan        # registers a fake LiDAR scan to the model
    pre-built GLBs, ranges slide named nodes, steps are sliders over pre-built shapes.
    Tours are keyframed camera paths that can change options as they go.
 4. **[Drawings](docs/drawings.md):** SVG sheets, a cut list and a buy list generated from
-   the same layout functions as the model, checked for readability and for drawn = cut =
-   bought.
+   the same layout functions as the model, checked for readability, for drawn = cut =
+   bought, against cuts through the GLBs, and for anything the buy list leaves out.
+   **[Viewer](docs/viewer.md):** existing/proposed, light and sun, plan cuts, evidence,
+   save and share.
 5. **[Publish](docs/publish.md):** GitHub Pages (this repo deploys itself) or Cloudflare
    Workers with your own domain.
 

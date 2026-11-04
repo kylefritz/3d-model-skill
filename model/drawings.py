@@ -430,7 +430,7 @@ svg .arrow{stroke:#c4561a;stroke-width:2.2;marker-end:none}
 svg text{font-family:system-ui,-apple-system,sans-serif} svg .n{font-size:12px;fill:#333} svg .d{font-size:12px;fill:#2f5d9a;font-weight:600}
 svg .h{font-size:13px;font-weight:700;fill:#111;letter-spacing:.5px} svg .big{font-size:16px;font-weight:700;fill:#c4561a}
 @media print{body{font-size:11px} main{max-width:none;padding:0} .noprint{display:none} svg{min-width:0!important;border:none;max-height:7in;break-inside:avoid}
-  .sheet{break-before:page} h2{border:none}}
+  .sheet{break-before:page} section.sheet:first-of-type{break-before:auto} h2{border:none}}
 @page{size:letter;margin:.5in}
 """
 
@@ -449,7 +449,13 @@ def table(rows, head):
             + "</tbody></table></div>")
 
 
-def takeoff_html(pieces, bought, extra):
+def coverage_html(coverage):
+    rows = [(f"<code>{html.escape(m)}</code>", html.escape(v)) for m, v in coverage.items() if v != "buy"]
+    return ('<h2>Not on this list</h2><p class="brief">Everything else in this part of the model, and who it belongs to. '
+            '<code>make check</code> fails if the model grows a material this table doesn\'t mention.</p>' + table(rows, ["Material", "Where it goes"]))
+
+
+def takeoff_html(pieces, bought, extra, coverage=None):
     cut = table([(html.escape(x["part"]), x["profile"], x["qty"], frac(x["length"]), html.escape(x["note"])) for x in pieces],
                 ["Part", "Stock", "Qty", "Length", "Note"])
     rows = [(b["profile"], f"{b['stock_ft']}'", b["count"],
@@ -457,7 +463,8 @@ def takeoff_html(pieces, bought, extra):
     rows += [(html.escape(a), html.escape(b), c, html.escape(d)) for a, b, c, d in extra]
     buy_t = table(rows, ["Buy", "Length", "Qty", "Cut from each"])
     return (f'<section class="sheet"><h2>Cut list</h2>{cut}<h2>Buy list</h2>'
-            f'<p class="brief">Boards packed longest-first with a {frac(KERF)} saw kerf between cuts; the stock length is whichever wastes least.</p>{buy_t}</section>')
+            f'<p class="brief">Boards packed longest-first with a {frac(KERF)} saw kerf between cuts; the stock length is whichever wastes least.</p>{buy_t}'
+            + (coverage_html(coverage) if coverage else "") + '</section>')
 
 
 def page(title, lede, body, pdf):
@@ -497,14 +504,15 @@ def main():
                 + sheet("A1", r, door_elevation(spec, p, door, o))
                 + sheet("A2", r, door_plan(spec, p, door, o))
                 + sheet("A3", r, f'<div class="pair">{door_head(spec, p, door, o)}{door_sill(spec, p, door, o)}</div>')
-                + takeoff_html(pieces, bought, extra))
+                + takeoff_html(pieces, bought, extra, r["coverage"]))
         slug = f"door-{d_id}"
         (OUT / slug).mkdir(parents=True, exist_ok=True)
         (OUT / slug / "index.html").write_text(page(
             f"{r['title']}: {door['maker']} {door['label'].split(' ', 1)[-1]}",
             f"The {html.escape(door['model'])} in the rear wing's 12\" brick wall. Inches; seen from the yard unless noted.",
             body, f"{slug}.pdf"))
-        takeoff[slug] = {"pieces": pieces, "bought": bought, "mo": o["mo"], "ro": o["ro"], "unit": o["unit"]}
+        takeoff[slug] = {"pieces": pieces, "bought": bought, "mo": o["mo"], "ro": o["ro"], "unit": o["unit"],
+                         "glbs": [f"options/door-{d_id}.glb", f"options/rear-{d_id}-brick.glb"], "coverage": r["coverage"]}
         index.append((slug, f"{r['title']}: {door['maker']} {door['label'].split(' ', 1)[-1]}"))
 
     r = reg["porch"]
@@ -519,13 +527,14 @@ def main():
             elev, _ = railing_elevation(v, p)
             plan_svg, drawn = porch_plan(v, p)
             extra = [("2 1/2\" exterior screws", "1 lb box", 2, ""), ("structural screws, rail to post", "", 4 * len(build.rail_runs(v, p)), "")]
-            body = sheet("P1", r, elev) + sheet("P2", r, plan_svg) + takeoff_html(pieces, bought, extra)
+            body = sheet("P1", r, elev) + sheet("P2", r, plan_svg) + takeoff_html(pieces, bought, extra, r["coverage"])
             slug = f"porch-{rail}-{depth}"
             title = f"{r['title']}: {rail}\" guard, {depth}' deep"
             (OUT / slug).mkdir(parents=True, exist_ok=True)
             (OUT / slug / "index.html").write_text(page(title, "Guard rail for the front porch: posts, caps, bottom rails and balusters. Inches.", body, f"{slug}.pdf"))
             takeoff[slug] = {"pieces": pieces, "bought": bought, "balusters_drawn": drawn, "balusters_cut": n_bal,
-                             "rail_height": float(rail), "depth": float(depth)}
+                             "rail_height": float(rail), "depth": float(depth),
+                             "glbs": [f"options/porch-{pitch}-{rail}-{depth}.glb"], "coverage": r["coverage"]}
             index.append((slug, title))
 
     links = "".join(f'<li><a href="{s}/">{html.escape(t)}</a> · <a href="{s}/{s}.pdf">PDF</a></li>' for s, t in index)

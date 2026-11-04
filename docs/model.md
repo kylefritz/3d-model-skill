@@ -66,6 +66,20 @@ generators writing into the `.blend` and an exporter writing GLBs. The idea is t
 same. Plain Python + [trimesh](https://trimesh.org) is here because it runs in CI with no
 installs, and it's enough for a house made of boxes.
 
+## Where on Earth
+
+`site:` in `house.yaml` places the model: an `anchor` latitude/longitude for the origin, a
+`y_bearing` (the compass bearing of +Y, front wall toward the yard) and a `lot_depth`. The
+viewer uses them for the compass, the real sun and the lot lines. The example's anchor is
+NYC City Hall, deliberately not a real house. For your own, take the bearing from a map
+(the angle of the party wall) and check it against a shadow photo with a known time.
+
+## Existing and proposed
+
+`existing:` in `options.yaml` is the house as measured: the old window instead of the
+slider, the porch as built. Everything else is proposed. Model the existing condition
+first, and date it.
+
 ## Close the loop
 
 Don't trust a render, and don't trust yourself reading one. Every link has a check:

@@ -18,12 +18,16 @@ import itertools
 import json
 import random
 import re
+import sys
 from fractions import Fraction
 from pathlib import Path
 
 import numpy as np
 import trimesh
 import yaml
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))   # run as a script: find fingerprint.py next to it
+from fingerprint import fingerprint  # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[1]
 SITE = ROOT / "site"
@@ -355,6 +359,12 @@ def baluster_layout(length, pc):
 RAIL = {"cap": (3.5, 1.5), "bottom": (2.5, 1.5), "bottom_gap": 3.0}  # 2x4 cap flat, 2x3 bottom rail, 3" off the floor
 
 
+def porch_part(spec, p, fields):
+    part = Part()
+    porch(part, porch_variant(spec, *(fields[k]["default"] for k in ("porch_pitch", "rail_height", "porch_depth"))), p)
+    return part
+
+
 def porch_variant(spec, pitch, rail, depth):
     """The spec with one slider position applied. Sliders that change shape are
     built at every step, so the model and the drawings always match."""
@@ -593,7 +603,8 @@ def to_scene(part: Part, colors: dict, prefix="") -> trimesh.Scene:
         for mat, meshes in sorted(p.meshes.items()):
             mesh = trimesh.util.concatenate(meshes)
             mesh.apply_transform(S)
-            mesh.unmerge_vertices()  # flat faces: each face gets its own normals
+            mesh.unmerge_vertices()  # flat faces: each face gets its own vertices...
+            mesh.vertex_normals = np.repeat(mesh.face_normals, 3, axis=0)   # ...and its face normal (no scipy needed)
             rgba = colors.get(mat, "#cccccc")
             mesh.visual = trimesh.visual.TextureVisuals(material=trimesh.visual.material.PBRMaterial(
                 name=mat,
@@ -613,7 +624,7 @@ def to_scene(part: Part, colors: dict, prefix="") -> trimesh.Scene:
 
 def write_glb(scene, path: Path):
     path.parent.mkdir(parents=True, exist_ok=True)
-    data = scene.export(file_type="glb")
+    data = scene.export(file_type="glb", include_normals=True)   # three needs normals for shadows; without them it flat-shades and skips them
     path.write_bytes(data)
     faces = sum(len(g.faces) for g in scene.geometry.values())
     return {"faces": faces, "bytes": len(data), "sha256": hashlib.sha256(data).hexdigest()[:16]}
@@ -669,8 +680,22 @@ def main():
         travel[d_id] = round(t * IN, 4)
         assets[f"options/door-{d_id}.glb"] = write_glb(to_scene(part, colors), SITE / f"options/door-{d_id}.glb")
 
+    # stand-in scan points for the evidence layer (default options, as a phone would see it)
+    base = [shell(spec, p), porch_part(spec, p, fields)]
+    clad = Part()
+    for j, wall in enumerate((front, rear_main, wing_west)):
+        CLADDING[fields["cladding"]["default"]](clad, wall, spec, seed=j)
+    rp, rw = rear(spec, p, doors[fields["door"]["default"]], fields["cladding"]["default"], seed=100)
+    scan = demo_scan(base + [clad, rp])
+    (SITE / "scan").mkdir(parents=True, exist_ok=True)
+    data = trimesh.Scene(scan).export(file_type="glb")
+    (SITE / "scan/points.glb").write_bytes(data)
+
     contract = contract_for(opts, doors, travel, spec, p)
     contract["assets"] = assets
+    contract["scan"] = {"url": "scan/points.glb", "points": len(scan.vertices), "bytes": len(data),
+                        "note": "Simulated scan for the demo: points sampled off the model with 1 cm of noise."}
+    contract["source_sha256"] = fingerprint()   # see fingerprint.py
     (SITE / "controls.json").write_text(json.dumps(contract, indent=1) + "\n")
     total = sum(a["bytes"] for a in assets.values())
     print(f"wrote {len(assets)} GLBs, {total / 1e6:.2f} MB, {sum(a['faces'] for a in assets.values())} faces")
@@ -711,11 +736,42 @@ def contract_for(opts, doors, travel, spec, p):
         "slots": opts["slots"],
         "brick": {"natural": opts["natural_brick"], **opts["brick_color"]},
         "door_specs": specs,
-        "views": [{"name": v["name"], "eye": web(v["eye"]), "target": web(v["target"])} for v in opts["views"]],
+        "views": [{"name": v["name"], "eye": web(v["eye"]), "target": web(v["target"]),
+                   **({"section": round(inches(v["section"]) * IN, 3)} if "section" in v else {})} for v in opts["views"]],
+        "existing": opts.get("existing", {}),
+        "lights": [{"name": l["name"], "at": web(l["at"]), "color": l["color"], "power": l["power"]} for l in opts.get("lights", [])],
+        "site": site_contract(spec, p),
         "tours": [{"name": t["name"], "keys": [{"at": k["at"], "eye": web(k["eye"]), "target": web(k["target"]),
                                                   **({"set": k["set"]} if k.get("set") else {})} for k in t["keys"]]}
                   for t in opts.get("tours", [])],
     }
+
+
+def site_contract(spec, p):
+    """Georeference and the lot, for the compass, the sun and the lot lines."""
+    s = spec["site"]
+    front, W = s["front_line"], p["W"]
+    lot = [(0, front), (W, front), (W, front + s["lot_depth"]), (0, front + s["lot_depth"])]
+    return {"anchor": s["anchor"], "y_bearing": s["y_bearing"], "ground": round(p["grade"] * IN, 3),
+            "lot": [web((x, y, 0))[::2] for x, y in lot]}   # [x, z] pairs in the viewer's frame
+
+
+def demo_scan(parts, n=90_000, seed=7):
+    """A stand-in for a registered phone scan: points sampled off the model's surfaces with
+    ~1 cm of noise, skipping roofs (a phone on the ground doesn't see them). A real scan
+    goes through tools/register_scan.py and tools/scan_to_points.py instead."""
+    meshes = []
+    for part in parts:
+        for mat, ms in part.meshes.items():
+            if not mat.startswith(("roof", "ground", "street", "context")):
+                meshes += ms
+    mesh = trimesh.util.concatenate(meshes)
+    mesh.apply_transform(np.diag([IN, IN, IN, 1.0]) @ Z_UP_TO_Y_UP)
+    rng = np.random.default_rng(seed)
+    pts, _ = trimesh.sample.sample_surface(mesh, n, seed=seed)
+    pts = pts + rng.normal(0, 0.01, pts.shape)
+    colors = np.tile(np.array([[40, 170, 150, 255]], np.uint8), (len(pts), 1))
+    return trimesh.PointCloud(pts.astype(np.float32), colors=colors)
 
 
 def fmt(x):

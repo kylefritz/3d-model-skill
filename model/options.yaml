@@ -142,6 +142,29 @@ slots:
 # Natural brick ignores the body paint; everything else takes it.
 brick_color: {paint_toggle: paint_brick, paint_field: body}
 
+# The house as measured today. The Existing / Proposed toggle shows these values and
+# locks the panel; Proposed is whatever the panel says.
+existing:
+  cladding: brick
+  paint_brick: false
+  trim: sw7005
+  porch_floor: sw7069
+  porch_trim: sw7005
+  porch_ceiling: sw7005
+  front_door: sw2802
+  door: none
+  porch_depth: "8"
+  porch_pitch: "1"
+  rail_height: "36"
+
+# Lights that come on at dusk, in model inches. Watts is a feel, not a fixture spec.
+lights:
+  - {name: porch ceiling, at: [56, -48, 103], color: "#ffd29a", power: 18}
+  - {name: porch ceiling, at: [136, -48, 103], color: "#ffd29a", power: 18}
+  - {name: rear sconce, at: [126, 556, 92], color: "#ffc98a", power: 12}
+  - {name: kitchen, at: [126, 460, 100], color: "#ffe2b8", power: 30}
+  - {name: front room, at: [96, 120, 100], color: "#ffe2b8", power: 30}
+
 # Viewpoints, in model inches (X along the facade, Y back toward the yard, Z up).
 views:
   - {name: Street, eye: [150, -560, 70], target: [96, 0, 110]}
@@ -149,6 +172,9 @@ views:
   - {name: Back yard, eye: [40, 960, 90], target: [126, 552, 60]}
   - {name: Rear door, eye: [126, 690, 64], target: [126, 552, 46]}
   - {name: Inside, eye: [126, 430, 64], target: [126, 560, 44]}
+  # plan cuts: `section` is the cut height in inches; the camera looks straight down
+  - {name: First floor plan, eye: [96, 270, 1100], target: [96, 272, 0], section: 48}
+  - {name: Second floor plan, eye: [96, 270, 1100], target: [96, 272, 120], section: 168}
 
 # Tours: camera keyframes in model inches, at seconds. `set` applies settings at a key
 # (a range slider eases between keys). The viewer plays them; tools/record_tour.py

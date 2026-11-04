@@ -82,7 +82,7 @@ Two checks close the loop after a deploy:
 
 ```
 $ uv run tools/verify_live.py https://you.github.io/3d-model-skill/
-ok   1,412 files live and identical; sources 3f1c09a2b7e4
+ok   121 files live and identical; sources de7963a80377
 ```
 
 ## Before you publish a real house

@@ -22,7 +22,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
-      - uses: astral-sh/setup-uv@v10
+      - uses: astral-sh/setup-uv@v10.3.3   # no floating major tag; pin the release
       - run: uv run model/build.py
       - run: uv run model/check.py
       - uses: actions/configure-pages@v6

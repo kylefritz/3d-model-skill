@@ -33,6 +33,47 @@ def dist(a, b):
     return sum((x - y) ** 2 for x, y in zip(a, b)) ** 0.5
 
 
+SAMPLE_WORKLOG = {  # a made-up session, so the work log table is exercised without a real worklog
+    "prices_as_of": "2026-01-01",
+    "sessions": [{"date": "2026-01-02", "session": "0000abcd", "title": "Sample session", "turns": 120,
+                  "tokens": 4_200_000, "cost": 3.5, "unpriced": False,
+                  "roles": {"lead": {"models": ["claude-opus-5-5"]}, "workers": {"models": ["claude-sonnet-5-5"]}}}],
+    "total": {"turns": 120, "tokens": 4_200_000, "cost": 3.5, "unpriced": False},
+}
+
+
+def check_details(browser, base):
+    """Model details: the size and counts of what's on screen, and the work log when stats.json has one."""
+    page = browser.new_page(viewport={"width": 1280, "height": 900})
+    errors = []
+    page.on("pageerror", lambda e: errors.append(str(e)))
+
+    def with_worklog(route):
+        body = route.fetch().json()
+        body["worklog"] = SAMPLE_WORKLOG
+        route.fulfill(json=body)
+
+    page.route("**/stats.json", with_worklog)
+    page.goto(base)
+    page.wait_for_function("window.viewer", timeout=60000)
+    summary = page.locator("fieldset.details summary")
+    check(summary.count() == 1 and ("KB" in summary.inner_text() or "MB" in summary.inner_text()),
+          f"model details shows the size ({summary.inner_text() if summary.count() else 'missing'})")
+    summary.click()
+    facts = page.evaluate("Object.fromEntries([...document.querySelectorAll('.details dl div')].map(d => [d.querySelector('dt').textContent, d.querySelector('dd').textContent]))")
+    check(int(facts.get("Draw calls", "0").replace(",", "")) > 0, f"details counts draw calls ({facts.get('Draw calls')})")
+    check(facts.get("Scan points") == "off", "scan points read off while the layer is off")
+    page.evaluate("viewer.display.scan = true; viewer.set('body', 'sw2802')")
+    page.wait_for_timeout(2500)
+    scan = page.evaluate("document.querySelector('.details dl div:nth-child(7) dd').textContent")
+    check(scan not in ("off", ""), f"turning the scan on counts its points ({scan})")
+    check(page.evaluate("document.querySelector('fieldset.details details').open"), "details stays open across a panel rebuild")
+    rows = page.locator(".worklog tbody tr").count()
+    check(rows == 1 and "$3.50" in page.locator(".worklog tfoot").inner_text(), "work log lists sessions and a cost total")
+    check(not errors, f"no page errors in details {errors[:2]}")
+    page.close()
+
+
 def main(base):
     with sync_playwright() as p:
         browser = p.chromium.launch(args=["--use-angle=swiftshader", "--enable-unsafe-swiftshader"])
@@ -156,6 +197,7 @@ def main(base):
         check(abs(p1[1] - p0[1]) < 0.01, "walking stays level")
 
         check(not errors, f"no page errors {errors[:2]}")
+        check_details(browser, base)
         browser.close()
     if failures:
         sys.exit(1)

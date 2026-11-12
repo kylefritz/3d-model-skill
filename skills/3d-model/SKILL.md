@@ -117,8 +117,10 @@ build (the `source_sha256` fingerprint), drawings that disagree with the GLBs, a
 materials missing from a drawing set's coverage table.
 Then look: `make serve` and `make shots` (Playwright, desktop and phone). Read every
 screenshot before showing anyone. Look for z-fighting stripes, black faces, clipped
-views, and a panel covering the subject. After three rounds on one surface, call
-it an estimate instead of tuning the measurement.
+views, and a panel covering the subject. Read them tiled, not one by one:
+`make sheet OUT=out/sheet.jpg STILLS="street-dusk inside rear-none"` makes one labelled
+sheet under 1568 px. After three rounds on one surface, call it an estimate instead of
+tuning the measurement.
 
 ## 6. Drawings, cut list, buy list
 
@@ -172,6 +174,63 @@ materials and nodes, and the viewer finds them by name.
 After a deploy, prove it: `uv run tools/verify_live.py <url>` compares every file with
 the live site, byte for byte, plus the fingerprint. The Pages workflow's `verify` job does
 it against the exact artifact it deployed. "CI is green" isn't proof the site is right.
+
+## Measure the model
+
+Size is something to show, not to cut. Never decimate, simplify or split a model to make
+it smaller: serve it compressed instead (float geometry brotlis about 4x) and let people
+see what it weighs. `make build` writes `site/stats.json` (bytes raw, gzip and brotli,
+triangles, vertices, draw calls, materials, textures, scan points per GLB) and the viewer's
+"Model details" shows it for what's on screen. `make stats` prints it. Say the size when
+you publish.
+
+Log every modelling session: `make tokens SESSION=<id prefix> TITLE="..."` appends its
+tokens, lead and workers apart, to `model/worklog.yml`, and the viewer's work log prices it
+as an API list-price equivalent. Details in `docs/publish.md`, "Size, stats and the work log".
+
+## Keep it cheap: a thin lead and a worker per part
+
+A modelling session's cost is turns times context, not this file. One lead that read a
+250 KB site file and full-size stills carried them on every later turn, and re-read about
+300M cached tokens over ~640 turns. A redesign of the same scale run the way below used
+about 40% of the tokens and of the cost.
+
+- **Split before designing.** When `build.py` (or one site file) passes about 60 KB, split it
+  into one module and one numbers file per part (a room, a facade, the yard) before any
+  design work, and prove the split is a no-op: the build writes byte-identical GLBs (`cmp`, or
+  the `sha256` in `controls.json` assets).
+- **The lead stays thin.** It reads the request and the outline (`rg -n "^def "`), writes
+  one shared brief (frame, levels, layers, the loop, what counts as a stand-in) and a
+  paragraph of design direction per part, and reads one contact sheet per part per round.
+  It never reads a big file whole or a full-size still.
+- **One worker per part, on a cheaper model** (`model: sonnet` on the Agent call), each
+  owning its module and numbers file. Workers draft small (half-size, low-sample stills;
+  for the viewer, a small Playwright viewport), tile them into one sheet, pipe build output
+  through `tail`, and hand back about 250 words, the sheet's path, and "still weak". The
+  lead sends one polish round to the same worker (SendMessage), so its context is reused.
+- **Shared checkout rules**, in the brief:
+  - Keep your module importable at all times. Write a big rewrite to `<module>_next.py`,
+    compile it (`python -m py_compile`), then swap it in one step; a half-written module
+    breaks every sibling's build.
+  - Prefix new material names with your part (`kitchen.counter`), so recolors and the
+    drawings' coverage table don't collide.
+  - Interiors must be lit: a dark tile is a bug, not a mood. The commonest worker failure is a
+    correct room rendered nearly black. Check a dusk still too, and make it show something the
+    day still doesn't (lit windows, lamps).
+  - Shared files (views, materials, `options.yaml`) get small targeted edits; the lead does
+    the full build, `make check` and the drawings at the end.
+- **Cap machine load** when the machine is shared: one render at a time behind a lock (for
+  example `flock /tmp/render.lock <cmd>`), at low priority (`nice -n 10`). Two renders at once
+  are rarely faster than one after the other.
+- **Watch the size each round.** Detail multiplies: ask every worker for the face count of
+  each repeated part (a tree, a chair, a baluster) and how many it placed, and look at
+  `make stats` before the next round. Big is fine; big by accident isn't.
+- **Stand-ins read as cheap**: ball shrubs, a flat green board for a hedge, glowing signs,
+  string lights everywhere. Use what a built project has: real materials, planters of
+  leaning blades, signs lit from above, light in the structure. Workers list the stand-ins
+  they left under "still weak"; read that list before you accept a sheet.
+
+After each session, log it (`make tokens`), so the next one can see what this cost.
 
 ## Viewer controls
 

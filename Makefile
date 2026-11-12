@@ -1,4 +1,4 @@
-.PHONY: build drawings check check-drawings serve shots tours test-viewer demo-scan deploy-cloudflare
+.PHONY: build drawings check check-drawings serve shots tours test-viewer demo-scan deploy-cloudflare stats sheet tokens
 
 build:            ## model/*.yaml -> site/model, site/options, site/controls.json
 	uv run model/build.py
@@ -27,6 +27,15 @@ tours:            ## with `make serve` running: record every tour to docs/img
 
 demo-scan:        ## register a fake scan to the model, no phone needed
 	uv run tools/register_scan.py --demo --out out/demo
+
+stats:            ## size (raw, gzip, brotli) and counts of every built GLB; the build writes site/stats.json too
+	python3 tools/glb_stats.py site/model/*.glb site/options/*.glb site/scan/*.glb
+
+sheet:            ## one contact sheet of stills: make sheet OUT=out/sheet.jpg STILLS="street-dusk inside"
+	uv run tools/contact_sheet.py $(OUT) --dir $(or $(DIR),docs/img) $(STILLS)
+
+tokens:           ## log a session in model/worklog.yml: make tokens SESSION=<id prefix> TITLE="what it did"
+	uv run tools/session_tokens.py --session $(SESSION) --title "$(TITLE)"
 
 deploy-cloudflare: check
 	npx wrangler@4 deploy

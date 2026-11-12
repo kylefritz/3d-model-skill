@@ -699,6 +699,24 @@ def main():
     (SITE / "controls.json").write_text(json.dumps(contract, indent=1) + "\n")
     total = sum(a["bytes"] for a in assets.values())
     print(f"wrote {len(assets)} GLBs, {total / 1e6:.2f} MB, {sum(a['faces'] for a in assets.values())} faces")
+    write_stats([*assets, "scan/points.glb"])
+
+
+def write_stats(rels):
+    """site/stats.json: what each GLB weighs (raw, gzip, brotli when the CLI is there) and its counts,
+    plus model/worklog.yml priced, if there is one. The viewer's "Model details" reads it."""
+    sys.path.insert(0, str(ROOT / "tools"))
+    import glb_stats        # noqa: E402  stdlib only
+    import session_tokens   # noqa: E402  needs pyyaml, which this script has
+    out = {"files": glb_stats.site_stats(SITE, rels)}
+    worklog = session_tokens.priced()
+    if worklog:
+        out["worklog"] = worklog
+    (SITE / "stats.json").write_text(json.dumps(out, indent=1) + "\n")
+    raw =sum(out["files"][r]["bytes"] for r in rels)
+    gz = sum(out["files"][r]["gz_bytes"] for r in rels)
+    print(f"wrote site/stats.json: {len(rels)} GLBs, {raw / 1e6:.2f} MB raw, {gz / 1e6:.2f} MB gzipped"
+          + (f", work log of {len(worklog['sessions'])} sessions" if worklog else ""))
 
 
 def web(v):

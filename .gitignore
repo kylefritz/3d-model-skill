@@ -1,6 +1,7 @@
 site/model/
 site/options/
 site/controls.json
+site/stats.json
 out/
 __pycache__/
 .wrangler/

@@ -250,6 +250,7 @@ async function applyEvidence() {
     o.material.depthWrite = !display.ghost;
   });
   if (lotLine) lotLine.visible = display.lot;
+  refreshDetails();   // the scan layer and the slots change what's on screen
 }
 
 // ---------------------------------------------------------------- existing and proposed
@@ -481,7 +482,81 @@ function extraSections() {
   keys.className = 'note';
   keys.textContent = 'Keys: 1-9 jump to views, F for full screen, Esc to leave it.';
   files.append(keys);
+  if (stats) out.push(modelDetails());
   return out;
+}
+
+// ---------------------------------------------------------------- model details
+// What the model on screen weighs, from site/stats.json (the build writes it), and the work log
+// of the sessions that built it when model/worklog.yml exists. A hint over 15 MB or 1,000 draw
+// calls, never a cap: nothing here decimates or splits a model.
+let stats = null, detailsOpen = false;
+const HEAVY_BYTES = 15e6, HEAVY_DRAW_CALLS = 1000;
+const bytes = n => n >= 1e6 ? `${(n / 1e6).toFixed(1)} MB` : `${Math.max(1, Math.round(n / 1e3))} KB`;
+const count = n => n >= 1e6 ? `${(n / 1e6).toFixed(1)}M` : n >= 1e4 ? `${Math.round(n / 1e3)}k` : n.toLocaleString('en-US');
+const dollars = n => n >= 100 ? `$${Math.round(n).toLocaleString('en-US')}` : `$${n.toFixed(2)}`;
+const modelName = id => { const m = /^claude-([a-z]+)-(\d+)-(\d+)/.exec(id); return m ? `${m[1][0].toUpperCase()}${m[1].slice(1)} ${m[2]}.${m[3]}` : id; };
+function onScreen() {
+  // The files the current settings load: the shell, each slot's GLB, and the scan layer when it's on.
+  const rels = ['model/house.glb', ...Object.values(contract.slots).map(t => t.replace(/\{(\w+)\}/g, (_, k) => settings[k]))];
+  if (display.scan && contract.scan) rels.push(contract.scan.url);
+  return rels.map(r => stats.files[r]).filter(Boolean);
+}
+function refreshDetails() {
+  const old = document.querySelector('fieldset.details');
+  if (old && stats) old.replaceWith(modelDetails());
+}
+function modelDetails() {
+  const fs = document.createElement('fieldset');
+  fs.className = 'details';
+  const d = document.createElement('details');
+  d.open = detailsOpen;
+  d.ontoggle = () => { detailsOpen = d.open; };
+  const sum = (rows, k) => rows.reduce((n, r) => n + (r[k] || 0), 0);
+  const now = onScreen(), all = Object.values(stats.files);
+  const wire = rows => rows.every(r => r.br_bytes) ? `${bytes(sum(rows, 'br_bytes'))} brotli` : `${bytes(sum(rows, 'gz_bytes'))} gzipped`;
+  const summary = document.createElement('summary');
+  summary.innerHTML = `Model details <span>${bytes(sum(now, 'bytes'))}</span>`;
+  d.append(summary);
+  if (sum(now, 'bytes') > HEAVY_BYTES || sum(now, 'meshes') > HEAVY_DRAW_CALLS) {
+    const h = document.createElement('p'); h.className = 'note heavy'; h.textContent = 'Large model: first load takes longer on a phone.'; d.append(h);
+  }
+  const facts = [
+    ['On screen', `${bytes(sum(now, 'bytes'))}, ${wire(now)}`],
+    ['Triangles', count(sum(now, 'triangles'))],
+    ['Vertices', count(sum(now, 'vertices'))],
+    ['Draw calls', count(sum(now, 'meshes'))],
+    ['Materials', count(sum(now, 'materials'))],
+    ['Textures', sum(now, 'images') ? `${sum(now, 'images')} (${bytes(sum(now, 'image_bytes'))})` : 'none'],
+    ['Scan points', sum(now, 'scan_points') ? count(sum(now, 'scan_points')) : 'off'],
+    ['Every option', `${all.length} files, ${bytes(sum(all, 'bytes'))} (${wire(all)})`],
+  ];
+  const dl = document.createElement('dl');
+  for (const [k, v] of facts) {
+    const div = document.createElement('div');
+    div.innerHTML = `<dt>${k}</dt><dd>${v}</dd>`;
+    dl.append(div);
+  }
+  d.append(dl);
+  if (stats.worklog) d.append(workLog(stats.worklog));
+  fs.append(d);
+  return fs;
+}
+function workLog(log) {
+  const sec = document.createElement('section');
+  sec.className = 'worklog';
+  sec.setAttribute('aria-label', 'Work log');
+  const esc = s => String(s).replace(/[&<>"]/g, c => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;'}[c]));
+  const roles = s => Object.entries(s.roles).map(([r, v]) => `${r} ${[...new Set(v.models.map(modelName))].join(', ')}`).join('; ');
+  const rows = log.sessions.map(s => `<tr><td>${esc(s.date)}</td><td>${esc(s.title)}<small>${esc(s.session)} · ${esc(roles(s))} · ${count(s.turns)} turns</small></td>` +
+    `<td>${count(s.tokens)}</td><td>${dollars(s.cost)}${s.unpriced ? '+' : ''}</td></tr>`).join('');
+  const t = log.total;
+  sec.innerHTML = `<h3>Work log</h3><p class="note">Sessions that built this model, as far as they could be attributed. ` +
+    `Cost is the API list-price equivalent (prices as of ${esc(log.prices_as_of)}), not a bill.</p>` +
+    `<table><thead><tr><th>Date</th><th>Session</th><th>Tokens</th><th>Cost equiv.</th></tr></thead><tbody>${rows}</tbody>` +
+    `<tfoot><tr><td colspan="2">Total, ${log.sessions.length} ${log.sessions.length === 1 ? 'session' : 'sessions'}</td>` +
+    `<td>${count(t.tokens)}</td><td>${dollars(t.cost)}${t.unpriced ? '+' : ''}</td></tr></tfoot></table>`;
+  return sec;
 }
 
 // ---------------------------------------------------------------- save and share
@@ -821,6 +896,7 @@ renderer.setAnimationLoop(time => {
 // ---------------------------------------------------------------- start
 (async () => {
   contract = await (await fetch('controls.json')).json();
+  stats = await fetch('stats.json').then(r => r.ok ? r.json() : null).catch(() => null);   // optional: no file, no details
   for (const s of contract.sections) for (const f of s.fields) fields.set(f.id, f);
   views = contract.views;
   for (const [i, v] of views.entries()) $('view').add(new Option(v.name, i));

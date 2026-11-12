@@ -64,6 +64,14 @@ Double-tap ignores what the cut removed.
 - Keys: **1-9** jump to views, **F** for full screen (CSS, so it works on an iPhone too),
   **Esc** to leave it.
 
+## Model details
+
+Folded at the bottom of the panel: what the model on screen weighs (raw and over the wire),
+its triangles, vertices, draw calls, materials, textures and scan points, every option's
+total, and the work log when there is one. It reads `site/stats.json`, which the build
+writes; without that file the section doesn't appear. See `docs/publish.md`, "Size, stats
+and the work log".
+
 ## Getting around
 
 Orbit by default, at `rotateSpeed` 0.45 so a swipe doesn't spin the house. Double-tap flies

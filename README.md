@@ -73,6 +73,9 @@ $ make tours            # records the tours to docs/img
 $ make demo-scan        # registers a fake LiDAR scan to the model
 $ uv run tools/scan_sheets.py   # scan vs model plan cuts and a long section
 $ uv run tools/verify_live.py https://you.github.io/3d-model-skill/   # live = built, byte for byte
+$ make stats            # every GLB's size (raw, gzip, brotli), triangles, draw calls
+$ make sheet OUT=out/sheet.jpg STILLS="street-dusk inside"   # stills tiled into one sheet
+$ make tokens SESSION=<id> TITLE="..."   # log a Claude Code session's tokens in the work log
 ```
 
 ## How it works
@@ -92,7 +95,9 @@ $ uv run tools/verify_live.py https://you.github.io/3d-model-skill/   # live = b
    **[Viewer](docs/viewer.md):** existing/proposed, light and sun, plan cuts, evidence,
    save and share.
 5. **[Publish](docs/publish.md):** GitHub Pages (this repo deploys itself) or Cloudflare
-   Workers with your own domain.
+   Workers with your own domain. The viewer's "Model details" shows what the model weighs
+   and, if you keep one, a work log of the Claude Code sessions that built it, with tokens
+   and an API list-price equivalent ([size, stats and the work log](docs/publish.md#size-stats-and-the-work-log)).
 
 ## The skill
 

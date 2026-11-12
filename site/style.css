@@ -122,4 +122,20 @@ label.filepick input { display: block; margin-top: 4px; font-size: 12px; }
   display: grid; place-items: center; transform: rotate(var(--north, 0deg)); }
 #compass i { font: 700 12px/1 system-ui, sans-serif; font-style: normal; color: #c4561a; transform: translateY(-9px); }
 #compass::after { content: ""; position: absolute; width: 2px; height: 14px; background: #c4561a; top: 5px; border-radius: 1px; opacity: .5; }
+/* ---- model details: size, counts and the work log, folded away */
+.details summary { cursor: pointer; font-weight: 650; font-size: 13px; padding: 2px 0 6px; }
+.details summary span { font-weight: 400; color: var(--muted); margin-left: 6px; font-variant-numeric: tabular-nums; }
+.details dl { display: grid; grid-template-columns: 1fr 1fr; gap: 6px 12px; margin: 6px 0 4px; }
+.details dt { font-size: 11px; color: var(--muted); }
+.details dd { margin: 0; font-size: 13px; font-variant-numeric: tabular-nums; }
+.details .heavy { color: #c4561a; }
+.worklog { border-top: 1px solid var(--line); margin-top: 10px; padding-top: 8px; }
+.worklog h3 { font-size: 12px; margin: 0; letter-spacing: .2px; }
+.worklog table { width: 100%; border-collapse: collapse; font-size: 12px; margin-top: 6px; font-variant-numeric: tabular-nums; }
+.worklog th { font-weight: 400; font-size: 11px; color: var(--muted); text-align: left; padding: 3px 4px 3px 0; }
+.worklog td { vertical-align: top; padding: 4px 4px 4px 0; border-top: 1px solid var(--line); }
+.worklog td:nth-child(n+3), .worklog th:nth-child(n+3) { text-align: right; white-space: nowrap; }
+.worklog tbody td:first-child { white-space: nowrap; color: var(--muted); }
+.worklog td small { display: block; font-size: 11px; color: var(--muted); }
+.worklog tfoot td { font-weight: 650; }
 body.full #panel, body.full #dock, body.full #title, body.full #compass { display: none; }

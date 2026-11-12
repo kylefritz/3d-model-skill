@@ -119,9 +119,47 @@ Two layers, and they stack:
    any error. Run the drawings-vs-GLB check on the compressed file, since quantizing
    moves vertices by up to a millimeter.
 
+If the host won't compress `model/gltf-binary` and you can't add a rule, compress it yourself:
+keep a `house.glb.br` made with `brotli -q 9` next to the GLB, and have whatever serves it
+(a Worker, your app) send that copy with `Content-Encoding: br` and `Content-Type:
+model/gltf-binary` to a browser whose `Accept-Encoding` has `br`, and the raw file otherwise.
+Serve the `.br` only while it matches the GLB beside it (compare a hash), or a rebuild ships a
+stale model.
+
 The demo ships only layer 1. Its first load is 0.7 MB before gzip and under 100 KB after,
 so layer 2 would save tens of KB at the cost of a build step and a vendored decoder. A
 scanned or textured house, or a big Blender export, is where layer 2 pays off.
+
+## Size, stats and the work log
+
+A big model is fine. Don't decimate, simplify or split it to make it smaller: that throws away
+detail someone measured. Send it compressed (above) and keep the size where people see it.
+Uncompressed float geometry shrinks about 4x with brotli; one 23 MB model went out under 6 MB.
+
+- **Stats.** `make build` ends by writing `site/stats.json`: for every GLB its bytes, gzip and
+  brotli size (brotli only when the `brotli` CLI is installed), triangles, vertices, draw calls,
+  materials, textures and scan points. `tools/glb_stats.py` reads only the GLB's header and JSON
+  chunk, standard library only. `make stats` prints the same table.
+- **The viewer shows it.** "Model details", folded at the bottom of the panel, sums the files the
+  current choices load (shell, each slot, the scan layer when it's on), says what goes over the
+  wire, and gives every option's total. Over 15 MB or 1,000 draw calls it adds a plain hint
+  that a phone will take longer. A hint, never a cap.
+- **The work log.** `model/worklog.yml` lists the Claude Code sessions that built the model and
+  their tokens by model, lead and workers apart. After a session:
+  ```
+  $ make tokens SESSION=<id prefix> TITLE="rear door options, round 2"
+  $ uv run tools/session_tokens.py --show
+  ```
+  It finds `~/.claude/projects/*/<session>.jsonl` (the lead) and the subagent transcripts under
+  `<session>/` (the workers), counts each message once, and appends an entry (re-running replaces
+  it). `--from`/`--to` keep a window of a session that also did other work. The build prices it
+  into `stats.json`, and the viewer shows a table with an **API list-price equivalent**: work on
+  a subscription isn't billed that way, so it's labelled an equivalent, not a cost. The prices
+  are one dated dict at the top of `tools/session_tokens.py`. They go stale, so check them. A
+  model it doesn't know shows its tokens and a `+` on the cost.
+
+The worklog is published with the site when it exists. Leave it out of a public repo if the
+session titles say more than you want to share.
 
 ## Is the live site what you built?
 
@@ -143,7 +181,8 @@ ok   121 files live and identical; sources de7963a80377
 
 - **Strip private notes.** Correspondence, addresses, lock models, alarm panels: none of
   it belongs in a GLB anyone can download. Export only geometry and a contract.
-- **Weight.** Keep the first load under ~6 MB (`check.py` enforces it), and serve it
-  compressed (next section).
+- **Weight.** The demo's `check.py` keeps its first load under 6 MB, because a made-up house
+  of boxes has no reason to be bigger. A real one may be: raise the budget rather than cut
+  detail, serve it compressed, and let "Model details" say how big it is.
 - **Look on a phone.** Every control should work with a thumb, and Walk should work
   with the joystick.

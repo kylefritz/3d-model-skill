@@ -9,3 +9,5 @@ node_modules/
 .DS_Store
 site/drawings/
 site/scan/
+.claude/worktrees/
+.claude/settings.local.json

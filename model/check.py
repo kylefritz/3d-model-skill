@@ -77,6 +77,13 @@ fields = {f["id"]: f for s in contract["sections"] for f in s["fields"]}
 swaps = {k: list(f["options"]) for k, f in fields.items() if f["kind"] == "swap"}
 swaps.update({k: [str(v) for v in f["values"]] for k, f in fields.items() if f["kind"] == "steps"})
 
+# the comments server takes notes only for models it lists; it has to list exactly this one
+import re  # noqa: E402
+worker = (Path(__file__).parent.parent / "worker" / "index.js").read_text()
+listed = re.search(r"const MODELS = new Set\(\[([^\]]*)\]\)", worker)
+listed = set(re.findall(r"'([^']+)'", listed.group(1))) if listed else set()
+check(listed == {contract.get("name")}, f"worker/index.js MODELS is {sorted(listed)}, but the model is named {contract.get('name')!r} (options.yaml name:)")
+
 # slider steps stay inside what the code and the roofing allow
 for v in fields["rail_height"]["values"]:
     check(v >= 36, f"guard height step {v}\" is under the 36\" minimum")

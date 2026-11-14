@@ -1,6 +1,6 @@
 ---
 name: 3d-model
-description: Build a measured, parametric 3D model of a house from phone LiDAR scans, tape measurements and spec sheets, and publish it as a static web viewer (GitHub Pages or Cloudflare). Use when someone wants to scan a house or room, turn a scan into a clean model, show design options (paint, siding, a new door, porch colors) in a browser, register a scan to a model, make construction drawings, a cut list or a buy list from the model, record an animated walkthrough, or publish or fix the viewer, including Walk mode and the phone joystick.
+description: Build a measured, parametric 3D model of a house from phone LiDAR scans, tape measurements and spec sheets, and publish it as a static web viewer (GitHub Pages or Cloudflare). Use when someone wants to scan a house or room, turn a scan into a clean model, show design options (paint, siding, a new door, porch colors) in a browser, register a scan to a model, make construction drawings, a cut list or a buy list from the model, record an animated walkthrough, publish or fix the viewer (Walk mode, the phone joystick, the Comment button), or read and answer the notes people send from the viewer.
 ---
 
 # 3d-model
@@ -19,7 +19,7 @@ capture (LiDAR + tape) -> register -> model/house.yaml (numbers + sources)
 ```
 
 Read the doc for the step you're on: `docs/capture.md`, `docs/model.md`, `docs/viewer.md`,
-`docs/parameters.md`, `docs/drawings.md`, `docs/publish.md`.
+`docs/parameters.md`, `docs/drawings.md`, `docs/publish.md`, `docs/comments.md`.
 
 ## 1. Capture
 
@@ -171,9 +171,47 @@ repeat, so it shrinks 5-20x, but only if something compresses it. Check with
 on the export too. Never `gltf-transform optimize`: its dedup and join steps merge
 materials and nodes, and the viewer finds them by name.
 
+On Cloudflare the viewer also takes comments (section 8): create the D1 database first
+(`npx wrangler@4 d1 create 3d-model-comments`, id into `wrangler.jsonc`) or delete the
+`d1_databases` block to go without. GitHub Pages has no server, so no comments; the button
+hides itself there.
+
 After a deploy, prove it: `uv run tools/verify_live.py <url>` compares every file with
 the live site, byte for byte, plus the fingerprint. The Pages workflow's `verify` job does
 it against the exact artifact it deployed. "CI is green" isn't proof the site is right.
+
+## 8. Comments from the viewer
+
+On Cloudflare the viewer has a **✎ Comment** button: people tap things (numbered pins that
+keep the 3D point and the piece's `kp_id`/`kp_label` extras or node name), draw with a pen,
+write a note and send it. `worker/index.js` stores it in D1 with a JPEG of the view (pins
+and ink drawn in), the camera and a deep link. Details in `docs/comments.md`.
+
+**Pick them up** (needs only this machine's wrangler login; `--local` for `make dev`'s copy):
+
+```
+make comments                                     # open notes (ALL=1 for every note)
+uv run tools/comments.py show ID                  # the note; picture -> out/comments/ID.jpg
+uv run tools/comments.py reply ID "text" [--status done|wontfix|open]
+```
+
+- The SessionStart hook in `.claude/settings.json` runs `tools/comments.py --hook`, so a
+  session opens with the open notes in context. It's silent when there are none, offline,
+  or before the database exists.
+- **Look at the picture before acting.** Pen marks exist only there. A note with no pins or
+  ink gives only the camera: recreate the view at the picture's aspect (the `cam` eye and
+  target) and raycast to find what's in the middle of it.
+- Act on it like any change (the YAML, `make check`, a PR, a deploy), then reply saying what
+  changed and where. **Replies are public** on the site: keep them about the model, with no
+  addresses or private detail.
+- The POST endpoint is public (honeypot, size caps, no login). If spam shows up, suggest
+  Turnstile on Send or Cloudflare Access on `/api/*`.
+- The Worker takes notes only for names in its `MODELS` set; `make check` keeps that equal to
+  `name:` in `options.yaml`. Rename both together.
+- Viewer rules learned the hard way: the pen's canvas sits *below* the panels (z-index), or it
+  eats the click on Send; keep the user's tool after a send (back in Point, a drag orbits
+  instead of drawing the next circle); pin `compatibility_date` to one `wrangler dev`'s
+  bundled workerd supports.
 
 ## Measure the model
 

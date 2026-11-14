@@ -24,7 +24,16 @@
   <select id="tour-pick" aria-label="Which tour"></select>
   <button id="tour">Tour</button>
   <button id="share">Share</button>
+  <button id="comment" hidden title="Point at things or draw, and write a note">✎<span> Comment</span></button>
 </nav>
+<section id="note" hidden aria-label="Comment">
+  <div class="note-row"><div id="note-tool" class="seg" role="group" aria-label="Annotate"><button data-tool="point">Point at things</button><button data-tool="pen">Pen</button></div><button id="note-undo" class="plain">Undo</button></div>
+  <p id="note-hint" class="note"></p>
+  <textarea id="note-body" rows="3" maxlength="4000" placeholder="What should change, or what is this?" aria-label="Note"></textarea>
+  <div class="note-row"><input id="note-author" maxlength="60" placeholder="Your name (optional)" autocomplete="name" aria-label="Your name"><input id="note-website" class="hp" tabindex="-1" autocomplete="off" aria-hidden="true"><button id="note-cancel" class="plain">Cancel</button><button id="note-send" class="primary">Send</button></div>
+  <details id="note-list"><summary>Earlier notes</summary><ol></ol></details>
+</section>
+<canvas id="ink" aria-hidden="true"></canvas><div id="pins" aria-hidden="true"></div>
 <div id="walk-pad" hidden>
   <div id="walk-stick" role="img" aria-label="Walk joystick"><div id="walk-knob"></div></div>
   <div class="walk-keys"><button data-move="forward" aria-label="Forward">↑</button><div><button data-move="left" aria-label="Left">←</button><button data-move="backward" aria-label="Back">↓</button><button data-move="right" aria-label="Right">→</button></div></div>

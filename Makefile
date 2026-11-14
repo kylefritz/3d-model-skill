@@ -1,4 +1,4 @@
-.PHONY: build drawings check check-drawings serve shots tours test-viewer demo-scan deploy-cloudflare stats sheet tokens
+.PHONY: build drawings check check-drawings serve shots tours test-viewer demo-scan deploy-cloudflare stats sheet tokens comments dev
 
 build:            ## model/*.yaml -> site/model, site/options, site/controls.json
 	uv run model/build.py
@@ -37,5 +37,13 @@ sheet:            ## one contact sheet of stills: make sheet OUT=out/sheet.jpg S
 tokens:           ## log a session in model/worklog.yml: make tokens SESSION=<id prefix> TITLE="what it did"
 	uv run tools/session_tokens.py --session $(SESSION) --title "$(TITLE)"
 
-deploy-cloudflare: check
+deploy-cloudflare: check   ## migrations first, so the comments table exists before the code that writes it
+	npx wrangler@4 d1 migrations apply 3d-model-comments --remote
 	npx wrangler@4 deploy
+
+dev: drawings     ## the site plus the comments API and a local D1 on http://localhost:8787 (PORT=… to move it; `make serve` has no /api)
+	npx wrangler@4 d1 migrations apply 3d-model-comments --local
+	npx wrangler@4 dev --port $(or $(PORT),8787)
+
+comments:         ## open notes from the viewer's Comment button (ALL=1 for every note, LOCAL=1 for `make dev`'s)
+	uv run tools/comments.py $(if $(ALL),--all) $(if $(LOCAL),--local)

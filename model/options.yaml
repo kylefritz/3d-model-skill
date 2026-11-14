@@ -13,6 +13,10 @@
 # Paint chips are Sherwin-Williams colors; hex values are SW's own published RGB.
 # A screen is not a paint chip: get a real sample before you buy a gallon.
 
+# The model's name: the viewer's comments are filed under it, and the comments server
+# (worker/index.js MODELS) only takes notes for names it lists. make check keeps them equal.
+name: example-house
+
 paints:
   sw7005: {name: SW 7005 Pure White, hex: "#EDECE6"}
   sw6204: {name: SW 6204 Sea Salt, hex: "#CDD2CA"}

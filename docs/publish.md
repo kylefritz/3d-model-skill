@@ -3,7 +3,8 @@
 The viewer is plain files: `index.html`, `app.js`, `style.css`, three.js vendored in
 `site/vendor/` (MIT, license included), and the GLBs and `controls.json` that
 `make build` writes. No server, database or keys. Anything that serves a folder works.
-Here are two good ones.
+Here are two good ones. The viewer's comments are the one extra: on Cloudflare they add a
+small Worker and a free D1 database ([comments.md](comments.md)).
 
 | | GitHub Pages | Cloudflare Workers |
 | --- | --- | --- |
@@ -11,6 +12,7 @@ Here are two good ones.
 | URL | `you.github.io/repo` | `name.you.workers.dev`, or your own domain |
 | Builds | In GitHub Actions on every push | On your machine (or CI if you add it) |
 | Good for | An open-source example, a demo | A real house you'll keep revising, behind your own domain |
+| Comments | No (static only; the button hides) | Yes: a Worker and a free D1 database |
 | Cost | Free | Free (static assets don't count as requests) |
 
 ## GitHub Pages
@@ -37,21 +39,30 @@ Docs: [custom workflows for Pages](https://docs.github.com/en/pages/getting-star
 
 ## Cloudflare Workers (static assets)
 
-`wrangler.jsonc` points Workers at the same folder:
+`wrangler.jsonc` points Workers at the same folder, with a small script in front of `/api/*`
+for the viewer's comments ([comments.md](comments.md)):
 
 ```jsonc
 {
   "name": "3d-model-skill",
-  "compatibility_date": "2026-11-01",
-  "assets": { "directory": "./site", "not_found_handling": "none" }
+  "compatibility_date": "2026-10-30",
+  "main": "worker/index.js",
+  "assets": { "directory": "./site", "binding": "ASSETS", "not_found_handling": "none",
+              "run_worker_first": ["/api/*"] },
+  "d1_databases": [{ "binding": "DB", "database_name": "3d-model-comments",
+                     "database_id": "<your-database-id>", "migrations_dir": "worker/migrations" }]
 }
 ```
 
 ```
 $ make check
-$ npx wrangler@4 login          # once
-$ npx wrangler@4 deploy         # -> https://3d-model-skill.<you>.workers.dev
+$ npx wrangler@4 login                          # once
+$ npx wrangler@4 d1 create 3d-model-comments    # once; paste the database_id into wrangler.jsonc
+$ make deploy-cloudflare                        # migrations, then deploy -> https://3d-model-skill.<you>.workers.dev
 ```
+
+No comments wanted: delete the `d1_databases` block. Only `/api/*` runs the script, so the
+static files are still served as assets (free, not counted as requests).
 
 For your own domain, the domain's DNS has to be on Cloudflare. Add a route and deploy
 again. Cloudflare creates the DNS record and the certificate:

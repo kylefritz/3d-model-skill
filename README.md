@@ -29,6 +29,9 @@ LiDAR scans to plan a back porch. Every dimension says where it came from
 - **Construction drawings** for whatever's on screen: the slider install (elevation, jamb
   plan, head and sill) for each door, and the porch railing for each guard height and
   depth, with a cut list and a buy list. Web pages you can read on a phone, and PDFs.
+- **Comments** (on Cloudflare): tap things to pin them or draw on the view, write a note,
+  send. An agent reads the notes with the picture, makes the change and answers in the
+  viewer ([docs/comments.md](docs/comments.md)).
 
 | Lap siding, Sea Salt | Cedar shingles, Rosemary |
 | --- | --- |
@@ -76,6 +79,8 @@ $ uv run tools/verify_live.py https://you.github.io/3d-model-skill/   # live = b
 $ make stats            # every GLB's size (raw, gzip, brotli), triangles, draw calls
 $ make sheet OUT=out/sheet.jpg STILLS="street-dusk inside"   # stills tiled into one sheet
 $ make tokens SESSION=<id> TITLE="..."   # log a Claude Code session's tokens in the work log
+$ make dev              # the site plus the comments API and a local database (wrangler dev, :8787)
+$ make comments         # open notes sent from the viewer's Comment button
 ```
 
 ## How it works
@@ -98,6 +103,9 @@ $ make tokens SESSION=<id> TITLE="..."   # log a Claude Code session's tokens in
    Workers with your own domain. The viewer's "Model details" shows what the model weighs
    and, if you keep one, a work log of the Claude Code sessions that built it, with tokens
    and an API list-price equivalent ([size, stats and the work log](docs/publish.md#size-stats-and-the-work-log)).
+6. **[Comments](docs/comments.md):** on Cloudflare, people pin and draw on the model and send
+   notes; `tools/comments.py` (and a SessionStart hook) brings them to the agent, which
+   answers in the viewer.
 
 ## The skill
 

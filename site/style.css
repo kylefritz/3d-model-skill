@@ -139,3 +139,41 @@ label.filepick input { display: block; margin-top: 4px; font-size: 12px; }
 .worklog td small { display: block; font-size: 11px; color: var(--muted); }
 .worklog tfoot td { font-weight: 650; }
 body.full #panel, body.full #dock, body.full #title, body.full #compass { display: none; }
+
+/* ---- comment: tap things for numbered pins or draw with the pen, write a note, send (worker/index.js stores it) */
+#dock #comment { background: #e8e9e4; font-weight: 600; }
+#dock #comment[hidden] { display: none; }
+@media (max-width: 720px) { #dock #comment span { display: none; } }
+body.noting #dock { display: none; }
+#note { position: fixed; left: 50%; transform: translateX(-50%); bottom: max(16px, env(safe-area-inset-bottom));
+  width: min(560px, calc(100% - 32px)); max-height: 70vh; overflow: auto; display: flex; flex-direction: column; gap: 8px;
+  background: var(--surface); padding: 10px 12px; border-radius: 14px; box-shadow: 0 2px 14px rgba(0,0,0,.16); }
+@media (min-width: 721px) {   /* beside the design panel, centred in the picture like the view offset */
+  #note { left: calc(50% - 172px); width: min(560px, calc(100% - 376px)); }
+}
+@media (max-width: 720px) { body.noting #panel { display: none; } }
+#note[hidden] { display: none; }
+#note .note { margin: 0; }
+.note-row { display: flex; gap: 8px; align-items: center; }
+#note-tool { flex: 1; }
+#note textarea, #note input { font: inherit; font-size: 16px; border: 1px solid var(--line); border-radius: 10px; padding: 8px 10px; background: #fff; color: var(--ink); width: 100%; }
+#note textarea { resize: vertical; min-height: 64px; }
+#note input { flex: 1; min-width: 0; }
+#note .plain { padding: 0 12px; min-height: 40px; border-radius: 10px; background: #e8e9e4; flex: none; }
+#note .primary { padding: 0 18px; min-height: 40px; border-radius: 10px; background: var(--accent); color: var(--on-accent); font-weight: 600; flex: none; }
+#note button:disabled { opacity: .5; cursor: default; }
+.hp { position: absolute; left: -9999px; width: 1px; height: 1px; opacity: 0; }
+#note-list summary { font-size: 12px; color: var(--muted); cursor: pointer; }
+#note-list ol { list-style: none; margin: 6px 0 0; padding: 0; display: flex; flex-direction: column; gap: 8px; font-size: 13px; }
+#note-list li { background: #eceee9; border-radius: 10px; padding: 8px 10px; }
+#note-list .meta { font-size: 11px; color: var(--muted); }
+#note-list .reply { margin-top: 4px; padding-left: 8px; border-left: 3px solid var(--accent); }
+#note-list .acts button, #note-list .acts a { font-size: 12px; color: var(--accent); text-decoration: underline; margin-right: 12px; padding: 0; }
+#note-list .done { color: #2f7a4a; }
+#ink { position: fixed; inset: 0; width: 100%; height: 100%; pointer-events: none; touch-action: none; }
+body.inking #ink { pointer-events: auto; cursor: crosshair; }
+#pins { position: fixed; inset: 0; pointer-events: none; }
+.pin { position: absolute; width: 26px; height: 26px; margin: -13px 0 0 -13px; border-radius: 50%; background: #c4561a; color: #fff;
+  font: 600 13px/26px system-ui, sans-serif; text-align: center; box-shadow: 0 0 0 2px #fff, 0 2px 6px rgba(0,0,0,.25); }
+/* The pen takes only the picture: the panels and the toast sit above the ink, or it eats the clicks on Send. */
+#ink { z-index: 1; } #pins { z-index: 2; } #note, #panel { z-index: 3; } #toast { z-index: 4; }

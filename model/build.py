@@ -749,6 +749,7 @@ def contract_for(opts, doors, travel, spec, p):
                         "jamb": fmt(d["jamb_depth"]), "glass": d.get("glass")}
     return {
         "version": 1,
+        "name": opts["name"],   # what comments are filed under (worker/index.js MODELS)
         "units": "meters, glTF Y-up",
         "sections": sections,
         "slots": opts["slots"],

@@ -155,8 +155,9 @@ function brickUV(geometry) {
 // Not parameters of the house, so they aren't in the contract's sections: how you look at it.
 // Day puts the sun where it really is (lat/long, the model's bearing, month and hour);
 // dusk turns on the contract's lights and lights the windows from inside.
-const display = {light: 'day', hour: 10, month: 6,   // 10 a.m.: this example faces ESE, so the front is in sun
+const DISPLAY_DEFAULTS = {light: 'day', hour: 10, month: 6,   // 10 a.m.: this example faces ESE, so the front is in sun
   exposure: 0, scan: false, ghost: false, lot: true};
+const display = {...DISPLAY_DEFAULTS};
 const LIGHTS = {
   day: {sky: '#dfe6ea', hemi: 2.1, sun: 2.4, fill: 0.6, glow: 0, lamps: 0, shadows: true},
   overcast: {sky: '#d5d9dc', hemi: 2.9, sun: 0.5, fill: 0.9, glow: 0, lamps: 0, shadows: false},
@@ -287,6 +288,7 @@ async function applySlots() {
     if (now) root.remove(now.group);
     const group = model.clone(true);                     // clone: materials stay per-instance
     group.traverse(o => { if (o.isMesh) { o.material = [].concat(o.material).map(m => m.clone())[0]; o.castShadow = o.receiveShadow = true; } });
+    group.userData.slot = id;                            // a comment pin says which slot it hit
     root.add(group);
     slots.set(id, {url, group});
   });
@@ -656,10 +658,28 @@ function linkURL() {
     if (v !== (f.default ?? optionKeys(f)[0])) p.set(f.id, f.kind === 'toggle' ? Number(v) : v);
   }
   if (state === 'existing') p.set('state', 'existing');
-  const plain = {light: 'day', hour: 10, month: 6, exposure: 0, scan: false, ghost: false, lot: true};
-  for (const [k, v] of Object.entries(display)) if (v !== plain[k]) p.set(k, typeof v === 'boolean' ? Number(v) : v);
+  for (const [k, v] of Object.entries(display)) if (v !== DISPLAY_DEFAULTS[k]) p.set(k, typeof v === 'boolean' ? Number(v) : v);
   p.set('view', views[selected].name.toLowerCase().replace(/\W+/g, '-'));
   return location.pathname + '?' + p;
+}
+// The other way: a link's settings, light and state (at start, and for a comment's "Go there").
+function readQuery(q) {
+  settings = defaults();
+  for (const f of fields.values()) if (q.has(f.id)) settings[f.id] = f.kind === 'range' ? Number(q.get(f.id)) : q.get(f.id);
+  fix(settings);
+  Object.assign(display, DISPLAY_DEFAULTS);
+  for (const k of Object.keys(display)) if (q.has(k)) display[k] = typeof display[k] === 'boolean' ? q.get(k) === '1' : typeof display[k] === 'number' ? Number(q.get(k)) : q.get(k);
+  if (!LIGHTS[display.light]) display.light = 'day';
+  state = 'proposed'; proposedSettings = null;
+  if (q.get('state') === 'existing') { proposedSettings = {...settings}; settings = fix({...settings, ...contract.existing}); state = 'existing'; }
+  document.body.dataset.state = state;
+}
+// The named view, then `cam` (eye and target, six numbers) if the link has one: comments do.
+function viewFromQuery(q) {
+  const vi = views.findIndex(v => v.name.toLowerCase().replace(/\W+/g, '-') === q.get('view'));
+  showView(vi < 0 ? 0 : vi, false);
+  const cam = (q.get('cam') || '').split(',').map(Number);
+  if (cam.length === 6 && cam.every(Number.isFinite)) { camera.position.fromArray(cam); orbit.target.fromArray(cam, 3); orbit.update(); }
 }
 function syncURL() {
   clearTimeout(syncURL.t);
@@ -739,10 +759,13 @@ const solid = h => {
   return h.object.isMesh && h.object.visible && !(m?.transparent && m.opacity < 0.9)   // glass doesn't stop a tap
     && (clip == null || h.point.y <= clip);                                              // nor does what a plan cut removed
 };
-function goTo(cx, cy) {
+function pick(cx, cy) {
   const b = canvas.getBoundingClientRect();
   raycaster.setFromCamera(new THREE.Vector2((cx - b.left) / b.width * 2 - 1, -(cy - b.top) / b.height * 2 + 1), camera);
-  const hit = raycaster.intersectObject(root, true).find(solid);
+  return raycaster.intersectObject(root, true).find(solid) || null;
+}
+function goTo(cx, cy) {
+  const hit = pick(cx, cy);
   if (!hit?.face) return;
   if (walking) {
     const ny = hit.face.normal.clone().transformDirection(hit.object.matrixWorld).y, floor = ny > 0.7;
@@ -770,6 +793,7 @@ canvas.addEventListener('pointerup', e => {
   if (!press || Math.hypot(e.clientX - press.x, e.clientY - press.y) > TAP_SLOP_PX) { press = null; return; }
   press = null;
   const tap = {x: e.clientX, y: e.clientY, at: performance.now()};
+  if (noting) { if (tool === 'point') addPin(tap.x, tap.y); return; }   // commenting: a tap is a pin, not a flight
   if (lastTap && tap.at - lastTap.at < DOUBLE_TAP_MS && Math.hypot(tap.x - lastTap.x, tap.y - lastTap.y) < DOUBLE_TAP_PX) { lastTap = null; goTo(tap.x, tap.y); return; }
   lastTap = tap;
 });
@@ -789,6 +813,154 @@ for (const b of document.querySelectorAll('[data-move]')) {
   b.onpointerdown = e => { keys.add(b.dataset.move); try { b.setPointerCapture(e.pointerId); } catch {} };
   b.onpointerup = b.onpointercancel = () => keys.delete(b.dataset.move);
 }
+
+// ---------------------------------------------------------------- comment
+// Tap things to drop numbered pins (each keeps its 3D point and what it hit), or draw with the
+// pen, then write a note. Send posts it with a picture of the view to worker/index.js (D1);
+// tools/comments.py (make comments) is how an agent reads and answers them. Pen strokes are
+// drawn on the screen, not in 3D, so the view holds still while there is drawing on it.
+// The button only shows where /api/comments answers: GitHub Pages and `make serve` have no API.
+let noting = false, tool = 'point', pins = [], strokes = [], undo = [], inkStroke = null;
+const ink = $('ink'), inkCtx = ink.getContext('2d'), INK = '#c4561a';
+// What a pin hit. Pieces can carry glTF extras kp_id / kp_label (GLTFLoader puts them in
+// userData); without them it's the node's name, which here is the material's (paint.trim), and its slot.
+function pieceOf(o) {
+  let id = null, label = null, name = null, slot = null;
+  for (; o; o = o.parent) { id ??= o.userData.kp_id; label ??= o.userData.kp_label; name ??= o.userData.name; slot ??= o.userData.slot; }
+  return {id: id || name || null, label: label || (name ? (slot && slot !== 'shell' ? `${name} (${slot})` : name) : null)};
+}
+function sizeInk() { const r = Math.min(devicePixelRatio, 2); ink.width = innerWidth * r; ink.height = innerHeight * r; drawInk(); }
+addEventListener('resize', sizeInk);
+function drawInk() {
+  const r = ink.width / innerWidth;
+  inkCtx.setTransform(r, 0, 0, r, 0, 0);
+  inkCtx.clearRect(0, 0, innerWidth, innerHeight);
+  Object.assign(inkCtx, {lineCap: 'round', lineJoin: 'round', lineWidth: 4, strokeStyle: INK});
+  for (const st of strokes) {
+    inkCtx.beginPath();
+    st.forEach(([x, y], i) => i ? inkCtx.lineTo(x, y) : inkCtx.moveTo(x, y));
+    if (st.length === 1) inkCtx.lineTo(st[0][0] + 0.1, st[0][1]);   // a dot
+    inkCtx.stroke();
+  }
+}
+function hint() {
+  $('note-hint').textContent = tool === 'pen' ? 'Draw on the view. It holds still while there is drawing on it; Undo to free it.'
+    : strokes.length ? 'Tap things to number them. The view holds still while there is drawing on it.'
+    : 'Tap things to number them. Drag to move around; pins stay put.';
+  orbit.enabled = !noting || (tool === 'point' && !strokes.length);
+  document.body.classList.toggle('inking', noting && tool === 'pen');
+  for (const b of document.querySelectorAll('#note-tool button')) b.setAttribute('aria-pressed', b.dataset.tool === tool);
+  $('note-undo').disabled = !undo.length;
+}
+function setTool(t) { tool = t; hint(); }
+function addPin(x, y) {
+  const hit = pick(x, y);
+  if (!hit) { if (display.ghost) toast('Turn off “Ghost the model” to point at things'); return; }
+  const {id, label} = pieceOf(hit.object);
+  const el = document.createElement('div');
+  el.className = 'pin';
+  el.textContent = pins.length + 1;
+  $('pins').append(el);
+  pins.push({point: hit.point.clone(), id, label, el});
+  undo.push('pin');
+  if (label) toast(`${pins.length}: ${label}`);
+  hint();
+}
+const pinAt = new THREE.Vector3();
+function placePins() {
+  for (const p of pins) {
+    pinAt.copy(p.point).project(camera);
+    const off = pinAt.z > 1 || Math.abs(pinAt.x) > 1.1 || Math.abs(pinAt.y) > 1.1;
+    p.el.hidden = off;
+    if (!off) { p.el.style.left = (pinAt.x + 1) / 2 * innerWidth + 'px'; p.el.style.top = (1 - pinAt.y) / 2 * innerHeight + 'px'; }
+  }
+}
+function clearNote() { for (const p of pins) p.el.remove(); pins = []; strokes = []; undo = []; drawInk(); }
+function noteMode(on) {
+  noting = on;
+  document.body.classList.toggle('noting', on);
+  $('note').hidden = !on;
+  if (on) {
+    if (walking) walk(false);
+    if (touring) playTour(null);
+    document.body.classList.remove('panel-open');
+    sizeInk(); setTool('point'); loadNotes();
+  } else { clearNote(); orbit.enabled = true; document.body.classList.remove('inking'); }
+}
+$('comment').onclick = () => noteMode(true);
+$('note-cancel').onclick = () => noteMode(false);
+for (const b of document.querySelectorAll('#note-tool button')) b.onclick = () => setTool(b.dataset.tool);
+$('note-undo').onclick = () => { const last = undo.pop(); if (last === 'pin') pins.pop().el.remove(); else if (last === 'stroke') { strokes.pop(); drawInk(); } hint(); };
+ink.addEventListener('pointerdown', e => { if (tool !== 'pen') return; ink.setPointerCapture(e.pointerId); inkStroke = [[e.clientX, e.clientY]]; strokes.push(inkStroke); undo.push('stroke'); drawInk(); hint(); });
+ink.addEventListener('pointermove', e => { if (!inkStroke || !ink.hasPointerCapture(e.pointerId)) return; inkStroke.push([e.clientX, e.clientY]); drawInk(); });
+ink.addEventListener('pointerup', () => { inkStroke = null; });
+ink.addEventListener('pointercancel', () => { inkStroke = null; });
+addEventListener('keydown', e => { if (e.key === 'Escape' && noting) noteMode(false); });
+const camKey = () => [...camera.position.toArray(), ...orbit.target.toArray()].map(v => v.toFixed(3)).join(',');
+// The picture: this frame, the pen on top, the pins as numbered dots, at most 1600 px wide.
+// Render and read in the same task, so the frame is still there without preserveDrawingBuffer.
+function snapshot() {
+  renderer.render(scene, camera);
+  const src = renderer.domElement, k = Math.min(1, 1600 / src.width), w = Math.round(src.width * k), h = Math.round(src.height * k);
+  const out = Object.assign(document.createElement('canvas'), {width: w, height: h}), g = out.getContext('2d');
+  g.drawImage(src, 0, 0, w, h);
+  g.drawImage(ink, 0, 0, w, h);
+  const s = w / innerWidth;
+  placePins();
+  for (const p of pins) {
+    if (p.el.hidden) continue;
+    const x = parseFloat(p.el.style.left) * s, y = parseFloat(p.el.style.top) * s, r = 13 * s;
+    g.fillStyle = '#fff'; g.beginPath(); g.arc(x, y, r + 2 * s, 0, 7); g.fill();
+    g.fillStyle = INK; g.beginPath(); g.arc(x, y, r, 0, 7); g.fill();
+    Object.assign(g, {fillStyle: '#fff', font: `600 ${13 * s}px system-ui, sans-serif`, textAlign: 'center', textBaseline: 'middle'});
+    g.fillText(p.el.textContent, x, y + 0.5);
+  }
+  return out.toDataURL('image/jpeg', 0.82);
+}
+try { $('note-author').value = localStorage.getItem('note-author') || ''; } catch {}
+$('note-send').onclick = async () => {
+  const body = $('note-body').value.trim();
+  if (!body && !pins.length && !strokes.length) { toast('Write a note, tap something, or draw first'); return; }
+  const author = $('note-author').value.trim();
+  try { localStorage.setItem('note-author', author); } catch {}
+  const c = {model: contract.name, author, body, link: `${location.origin}${linkURL()}&cam=${camKey()}`, show: state, cam: camKey(),
+    pins: pins.map(p => ({x: p.point.x, y: p.point.y, z: p.point.z, id: p.id, label: p.label})), strokes: strokes.length,
+    image: snapshot(), website: $('note-website').value};
+  $('note-send').disabled = true;
+  try {
+    const r = await fetch('api/comments', {method: 'POST', headers: {'content-type': 'application/json'}, body: JSON.stringify(c)});
+    if (!r.ok) throw Error((await r.json().catch(() => ({}))).error || r.status);
+    // Keep the tool they were using: back in Point, a drag orbits instead of drawing the next circle.
+    $('note-body').value = ''; clearNote(); hint(); toast('Sent. Thanks!'); loadNotes(true);
+  } catch (e) { console.error(e); toast('That didn’t send. Try again in a moment.'); }
+  finally { $('note-send').disabled = false; }
+};
+// Earlier notes for this model, with the replies; "Go there" restores the design, light and camera.
+const esc = s => String(s ?? '').replace(/[&<>"]/g, ch => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;'})[ch]);
+const fetchNotes = () => fetch(`api/comments?model=${encodeURIComponent(contract.name)}`, {cache: 'no-store'}).then(r => { if (!r.ok) throw Error(r.status); return r.json(); });
+async function loadNotes(openList) {
+  const list = $('note-list'), ol = list.querySelector('ol');
+  try {
+    const {comments} = await fetchNotes();
+    list.querySelector('summary').textContent = `Earlier notes (${comments.length})`;
+    if (openList) list.open = true;
+    ol.innerHTML = comments.map(c => `<li><div class="meta">${esc(c.author || 'Someone')} · ${new Date(c.created).toLocaleDateString(undefined, {month: 'short', day: 'numeric'})}` +
+      `${c.status === 'open' ? ' · open' : ` · <span class="${c.status === 'done' ? 'done' : ''}">${esc(c.status)}</span>`}</div>${esc(c.body) || '<i>(drawing only)</i>'}` +
+      `${c.pins.length ? `<div class="meta">${c.pins.map(p => `${p.n}: ${esc(p.label || 'a spot')}`).join(' · ')}</div>` : ''}` +
+      `${c.reply ? `<div class="reply">${esc(c.reply)}</div>` : ''}` +
+      `<div class="acts"><button data-link="${esc(c.link)}">Go there</button>${c.has_image ? `<a href="api/comments/${esc(c.id)}.jpg" target="_blank" rel="noopener">Picture</a>` : ''}</div></li>`).join('')
+      || '<li class="meta">No notes yet.</li>';
+    for (const b of ol.querySelectorAll('[data-link]')) b.onclick = () => goThere(b.dataset.link);
+  } catch (e) { console.error(e); list.querySelector('summary').textContent = 'Earlier notes (couldn’t load)'; }
+}
+async function goThere(link) {
+  const q = new URL(link, location.href).searchParams;
+  readQuery(q);
+  buildPanel();
+  await applySlots();
+  viewFromQuery(q);
+}
+function commentsOn() { fetchNotes().then(d => { if (Array.isArray(d.comments)) $('comment').hidden = false; }).catch(() => {}); }
 
 // ---------------------------------------------------------------- tours
 // A tour is keyframes: camera eye and target at a time, and optionally settings to apply
@@ -891,6 +1063,7 @@ renderer.setAnimationLoop(time => {
   }
   updateCompass();
   renderer.render(scene, camera);
+  if (noting) placePins();
 });
 
 // ---------------------------------------------------------------- start
@@ -901,21 +1074,17 @@ renderer.setAnimationLoop(time => {
   views = contract.views;
   for (const [i, v] of views.entries()) $('view').add(new Option(v.name, i));
   const q = new URLSearchParams(location.search);
-  settings = defaults();
-  for (const f of fields.values()) if (q.has(f.id)) settings[f.id] = f.kind === 'range' ? Number(q.get(f.id)) : q.get(f.id);
-  fix(settings);
-  for (const k of Object.keys(display)) if (q.has(k)) display[k] = typeof display[k] === 'boolean' ? q.get(k) === '1' : typeof display[k] === 'number' ? Number(q.get(k)) : q.get(k);
-  if (!LIGHTS[display.light]) display.light = 'day';
+  readQuery(q);
   buildLamps();
   buildLot();
-  if (q.get('state') === 'existing') { proposedSettings = {...settings}; settings = fix({...settings, ...contract.existing}); state = 'existing'; document.body.dataset.state = 'existing'; }
   buildPanel();
   const shell = (await load('model/house.glb')).clone(true);
+  shell.userData.slot = 'shell';
   shell.traverse(o => { if (o.isMesh) o.castShadow = o.receiveShadow = true; });
   root.add(shell);
   await applySlots();
-  const vi = views.findIndex(v => v.name.toLowerCase().replace(/\W+/g, '-') === q.get('view'));
-  showView(vi < 0 ? 0 : vi, false);
+  viewFromQuery(q);
+  commentsOn();   // shows the Comment button only where /api/comments answers (not on GitHub Pages)
   for (const [i, t] of (contract.tours || []).entries()) $('tour-pick').add(new Option(t.name, i));
   window.viewer = {THREE, scene, camera, renderer, sun, root, orbit, settings: () => settings, set, setState, state: () => state, display, applyLight, slots: () => Object.fromEntries([...slots].map(([k, v]) => [k, v.url])), walkPace: () => holdPace(held), touch: () => ({pointers: pointers.size, walking, glide: !!glide}), moving: () => !!(fly || glide || touring),   // for tests and the console
     tours: contract.tours,

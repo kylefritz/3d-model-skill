@@ -64,6 +64,13 @@ Double-tap ignores what the cut removed.
 - Keys: **1-9** jump to views, **F** for full screen (CSS, so it works on an iPhone too),
   **Esc** to leave it.
 
+## Comment
+
+On the Cloudflare host, **✎ Comment** in the dock opens a panel: tap things for numbered pins,
+draw with the pen, write a note, send. Earlier notes and their replies are listed there, with
+**Go there** to restore the design and camera. The button hides where there's no `/api/`
+(GitHub Pages, `make serve`). See [comments.md](comments.md).
+
 ## Model details
 
 Folded at the bottom of the panel: what the model on screen weighs (raw and over the wire),

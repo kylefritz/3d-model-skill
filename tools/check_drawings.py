@@ -1,6 +1,6 @@
 # /// script
 # requires-python = ">=3.11"
-# dependencies = ["playwright>=1.47"]
+# dependencies = ["playwright==1.65.2"]   # the same pin as the browser install in .github/workflows/pages.yml
 # ///
 """Are the construction drawings readable? Renders every drawing set in Chromium and fails when:
 

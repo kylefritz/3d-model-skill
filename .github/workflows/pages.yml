@@ -28,7 +28,8 @@ jobs:
       - run: uv run model/check.py
       - run: uv run tools/scan_sheets.py --out site/scan/sheets
       # drawings readable on a phone, then printed to PDF from the same pages
-      - run: uvx --from playwright playwright install --with-deps chromium
+      # the same Playwright the check pins: an unpinned install raced a cached older one (browser build mismatch)
+      - run: uvx --from playwright==1.65.2 playwright install --with-deps chromium
       - run: |
           python3 -m http.server 8000 --directory site &
           sleep 1
